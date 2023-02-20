@@ -6,43 +6,34 @@ https://github.com/scottyhq/isce_notes/blob/master/BatchProcessing.md
 https://github.com/scottstanie/apertools/blob/master/apertools/asfdownload.py
 
 
-To download, you need aria2
-yum install -y aria2
-
-and either a .netrc:
+You need a .netrc to download:
 
 # cat ~/.netrc
 machine urs.earthdata.nasa.gov
     login CHANGE
     password CHANGE
 
-or, an aria2 conf file
-
-# $HOME/.aria2/asf.conf
-http-user=CHANGE
-http-passwd=CHANGE
-
-max-concurrent-downloads=5
-check-certificate=false
-
-allow-overwrite=false
-auto-file-renaming=false
-always-resume=true
 """
 import argparse
 import json
 import os
 import subprocess
-from collections import Counter
 from datetime import date, datetime
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import urlencode
 
+import requests
 from dateutil.parser import parse
 from osgeo import gdal
 from pydantic import BaseModel, Field, PrivateAttr, root_validator, validator
 from shapely import wkt
+
+from ._log import get_log, log_runtime
+from .utils import get_cache_dir
+
+logger = get_log()
 
 DIRNAME = os.path.dirname(os.path.abspath(__file__))
 
@@ -95,8 +86,6 @@ class ASFQuery(BaseModel):
         description="Ascending or descending",
     )
     _url: str = PrivateAttr()
-    _outname: str = PrivateAttr()
-    _query_cmd: str = PrivateAttr()
 
     @validator("start", "end", pre=True)
     def _parse_date(cls, v):
@@ -139,10 +128,6 @@ class ASFQuery(BaseModel):
         super().__init__(**data)
         # Form the url for the ASF query.
         self._url = self.form_url()
-        self._outname = "asfquery.geojson"
-        self._query_cmd = """ curl "{url}" > {outname} """.format(
-            url=self._url, outname=self._outname
-        )
 
     def form_url(self):
         """Form the url for the ASF query."""
@@ -162,24 +147,43 @@ class ASFQuery(BaseModel):
         base_url = "https://api.daac.asf.alaska.edu/services/search/param?{params}"
         return base_url.format(params=urlencode(params))
 
-    def query_only(self):
-        """Save files into correct output type."""
-        print("Running command:")
-        print(self._query_cmd)
-        subprocess.check_call(self._query_cmd, shell=True)
+    def query_results(self):
+        """Query the ASF API and save the results to a file."""
+        return _query_url(self._url)
 
-    def download_data(self, query_filetype="metalink", out_dir=".", **kwargs):
+    @staticmethod
+    def _get_urls(results):
+        return [r["properties"]["url"] for r in results["features"]]
+
+    @staticmethod
+    def _file_names(results):
+        return [r["properties"]["fileName"] for r in results["features"]]
+
+    @log_runtime
+    def download(self):
         # Start by saving data available as a metalink file
-        self.query_only(query_filetype=query_filetype, **kwargs)
+        results = self.query_results()
 
-        aria2_conf = os.path.expanduser("~/.aria2/asf.conf")
-        download_cmd = (
-            "aria2c --http-auth-challenge=true --continue=true "
-            f"--conf-path={aria2_conf} --dir={out_dir} {self._outname}"
+        urls = self._get_urls(results)
+        # Make a tempfile to hold the urls
+        url_file = Path(get_cache_dir() / "asf_urls.txt")
+        file_names = self._file_names(results)
+        # Exclude already-downloaded files
+        downloaded = set([f for f in file_names if (self.out_dir / f).exists()])
+        to_download = list(set(file_names) - downloaded)
+        logger.info(
+            f"Found {len(downloaded)}/{len(file_names)} files already downloaded"
         )
-        print("Running command:")
-        print(download_cmd)
-        subprocess.check_call(download_cmd, shell=True)
+
+        with open(url_file, "w") as f:
+            f.write("\n".join(to_download) + "\n")
+
+        outfiles = [self.out_dir / f for f in to_download]
+        for url, outfile in zip(urls, outfiles):
+            cmd = f"wget --no-clobber -O {outfile} {url}"
+
+            logger.info(cmd)
+            subprocess.check_call(cmd, shell=True)
 
     @staticmethod
     def _get_dem_bbox(fname):
@@ -194,39 +198,16 @@ class ASFQuery(BaseModel):
         with open(fname) as f:
             return wkt.load(f).bounds
 
-    def _parse_query_results(
-        self,
-    ):
-        """Extract the path number counts and date ranges from a geojson query result."""
-        with open(self._outname) as f:
-            results = json.load(f)
 
-        features = results["features"]
-        # In[128]: pprint(results["features"])
-        # [{'geometry': {'coordinates': [[[-101.8248, 34.1248],...
-        #            'type': 'Polygon'},
-        # 'properties': {'beamModeType': 'IW', 'pathNumber': '85',
-        # 'type': 'Feature'}, ...
-        print(f"Found {len(features)} results:")
-        if len(features) == 0:
-            return Counter(), []
-
-        # Include both the number and direction (asc/desc) in Counter key
-        path_nums = Counter(
-            [
-                (
-                    f["properties"]["pathNumber"],
-                    f["properties"]["flightDirection"].lower(),
-                )
-                for f in features
-            ]
-        )
-        print(f"Count by pathNumber: {path_nums.most_common()}")
-        starts = Counter([f["properties"]["startTime"] for f in features])
-        starts = [datetime.fromisoformat(s) for s in starts]
-        print(f"Dates ranging from {min(starts)} to {max(starts)}")
-
-        return path_nums, starts, results
+@lru_cache(maxsize=10)
+def _query_url(url):
+    """Query the ASF API and save the results to a file."""
+    logger.info("Querying url:")
+    logger.info(url)
+    resp = requests.get(url)
+    resp.raise_for_status()
+    results = json.loads(resp.content.decode("utf-8"))
+    return results
 
 
 def cli():

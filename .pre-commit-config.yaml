@@ -42,6 +42,7 @@ repos:
         additional_dependencies:
         - types-pkg_resources
         - types-python-dateutil
+        - types-requests
 
   - repo: https://github.com/PyCQA/pydocstyle
     rev: "6.3.0"

@@ -1,5 +1,6 @@
 import os
 import sys
+from pathlib import Path
 
 
 def get_cache_dir(force_posix=False):
@@ -29,15 +30,11 @@ def get_cache_dir(force_posix=False):
     """
     app_name = "sweets"
     if force_posix:
-        path = os.path.join(os.path.expanduser("~/." + app_name))
-    if sys.platform == "darwin":
-        path = os.path.join(
-            os.path.expanduser("~/Library/Application Support"), app_name
-        )
-    path = os.path.join(
-        os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.cache")),
-        app_name,
-    )
-    if not os.path.exists(path):
-        os.makedirs(path)
+        path = Path("~/.sweets") / app_name
+    elif sys.platform == "darwin":
+        path = Path("~/Library/Application Support") / app_name
+    else:
+        path = Path(os.environ.get("XDG_CONFIG_HOME", "~/.cache")) / app_name
+    path = path.expanduser()
+    path.mkdir(parents=True, exist_ok=True)
     return path
