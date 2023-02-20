@@ -1,4 +1,4 @@
-name: dolphin-env
+name: sweets-env
 channels:
   - conda-forge
 dependencies:

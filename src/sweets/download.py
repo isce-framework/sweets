@@ -1,6 +1,5 @@
 #!/usr/bin/env python
-"""
-Script for downloading through https://asf.alaska.edu/api/
+"""Script for downloading through https://asf.alaska.edu/api/.
 
 Base taken from
 https://github.com/scottyhq/isce_notes/blob/master/BatchProcessing.md
@@ -30,20 +29,20 @@ allow-overwrite=false
 auto-file-renaming=false
 always-resume=true
 """
-from typing import Optional, Any
-from pathlib import Path
 import argparse
-import datetime
+import json
 import os
 import subprocess
 from collections import Counter
-from osgeo import gdal
-
-from shapely import wkt
+from datetime import date, datetime
+from pathlib import Path
+from typing import Any, Optional
 from urllib.parse import urlencode
 
-from pydantic import BaseModel, Field, PrivateAttr, root_validator
-from datetime import datetime
+from dateutil.parser import parse
+from osgeo import gdal
+from pydantic import BaseModel, Field, PrivateAttr, root_validator, validator
+from shapely import wkt
 
 DIRNAME = os.path.dirname(os.path.abspath(__file__))
 
@@ -99,14 +98,41 @@ class ASFQuery(BaseModel):
     _outname: str = PrivateAttr()
     _query_cmd: str = PrivateAttr()
 
+    @validator("start", "end", pre=True)
+    def _parse_date(cls, v):
+        if isinstance(v, datetime):
+            return v
+        elif isinstance(v, date):
+            # Convert to datetime
+            return datetime.combine(v, datetime.min.time())
+        return parse(v)
+
+    @validator("out_dir")
+    def _is_absolute(cls, v):
+        return Path(v).resolve()
+
+    @validator("flight_direction")
+    def _accept_prefixes(cls, v):
+        if v is None:
+            return v
+        if v.lower().startswith("a"):
+            return "ASCENDING"
+        elif v.lower().startswith("d"):
+            return "DESCENDING"
+
     @root_validator
-    def check_bbox(cls, values):
+    def _check_bbox(cls, values):
         if values.get("dem") is not None:
-            values["bbox"] = _get_dem_bbox(values["dem"])
+            values["bbox"] = cls._get_dem_bbox(values["dem"])
         elif values.get("wkt_file") is not None:
-            values["bbox"] = _get_wkt_bbox(values["wkt_file"])
+            values["bbox"] = cls._get_wkt_bbox(values["wkt_file"])
         if values.get("bbox") is None:
             raise ValueError("Must provide a bbox or a dem or a wkt_file")
+
+        # Check that end is after start
+        if values.get("start") is not None and values.get("end") is not None:
+            if values["end"] < values["start"]:
+                raise ValueError("End must be after start")
         return values
 
     def __init__(self, **data: Any) -> None:
@@ -155,53 +181,56 @@ class ASFQuery(BaseModel):
         print(download_cmd)
         subprocess.check_call(download_cmd, shell=True)
 
+    @staticmethod
+    def _get_dem_bbox(fname):
+        ds = gdal.Open(fname)
+        left, xres, _, top, _, yres = ds.GetGeoTransform()
+        right = left + (ds.RasterXSize * xres)
+        bottom = top + (ds.RasterYSize * yres)
+        return left, bottom, right, top
 
-def _get_dem_bbox(fname):
-    ds = gdal.Open(fname)
-    left, xres, _, top, _, yres = ds.GetGeoTransform()
-    right = left + (ds.RasterXSize * xres)
-    bottom = top + (ds.RasterYSize * yres)
-    return left, bottom, right, top
+    @staticmethod
+    def _get_wkt_bbox(fname):
+        with open(fname) as f:
+            return wkt.load(f).bounds
 
+    def _parse_query_results(
+        self,
+    ):
+        """Extract the path number counts and date ranges from a geojson query result."""
+        with open(self._outname) as f:
+            results = json.load(f)
 
-def _get_wkt_bbox(fname):
-    with open(fname) as f:
-        return wkt.load(f).bounds
+        features = results["features"]
+        # In[128]: pprint(results["features"])
+        # [{'geometry': {'coordinates': [[[-101.8248, 34.1248],...
+        #            'type': 'Polygon'},
+        # 'properties': {'beamModeType': 'IW', 'pathNumber': '85',
+        # 'type': 'Feature'}, ...
+        print(f"Found {len(features)} results:")
+        if len(features) == 0:
+            return Counter(), []
 
+        # Include both the number and direction (asc/desc) in Counter key
+        path_nums = Counter(
+            [
+                (
+                    f["properties"]["pathNumber"],
+                    f["properties"]["flightDirection"].lower(),
+                )
+                for f in features
+            ]
+        )
+        print(f"Count by pathNumber: {path_nums.most_common()}")
+        starts = Counter([f["properties"]["startTime"] for f in features])
+        starts = [datetime.fromisoformat(s) for s in starts]
+        print(f"Dates ranging from {min(starts)} to {max(starts)}")
 
-def _parse_query_results(fname="asfquery.geojson"):
-    """Extract the path number counts and date ranges from a geojson query result"""
-    import geojson
-
-    with open(fname) as f:
-        results = geojson.load(f)
-
-    features = results["features"]
-    # In[128]: pprint(results["features"])
-    # [{'geometry': {'coordinates': [[[-101.8248, 34.1248],...
-    #            'type': 'Polygon'},
-    # 'properties': {'beamModeType': 'IW', 'pathNumber': '85',
-    # 'type': 'Feature'}, ...
-    print(f"Found {len(features)} results:")
-    if len(features) == 0:
-        return Counter(), []
-
-    # Include both the number and direction (asc/desc) in Counter key
-    path_nums = Counter(
-        [
-            (f["properties"]["pathNumber"], f["properties"]["flightDirection"].lower())
-            for f in features
-        ]
-    )
-    print(f"Count by pathNumber: {path_nums.most_common()}")
-    starts = Counter([f["properties"]["startTime"] for f in features])
-    starts = [datetime.datetime.fromisoformat(s) for s in starts]
-    print(f"Dates ranging from {min(starts)} to {max(starts)}")
-
-    return path_nums, starts
+        return path_nums, starts, results
 
 
 def cli():
+    """Run the command line interface."""
     p = argparse.ArgumentParser()
     p.add_argument(
         "--out-dir",
