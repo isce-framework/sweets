@@ -119,12 +119,9 @@ class Workflow(BaseModel):
         # dem_file = dem_create()
         # burst_db_file = delayed(download_burst_db)()
 
-        logger.warn("!!!!!!!!")
         downloaded_files = self._client.submit(self.asf_query.download)
         # Use .parent so that next step knows it depends on the result
         slc_data_path = downloaded_files.result()[0].parent
-        logger.warn("!!!!!!!!")
-        logger.warn(f"slc_data_path: {slc_data_path}")
 
         # asf_download = delayed(self.asf_query.download)
         # downloaded_files = asf_download()
