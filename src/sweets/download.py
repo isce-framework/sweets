@@ -214,6 +214,9 @@ class ASFQuery(BaseModel):
         for t in unzip_threads:
             t.join()
 
+        if self.unzip:
+            # Change to .SAFE extension
+            file_names = [f.with_suffix(".SAFE") for f in file_names]
         return file_names
 
     @staticmethod
