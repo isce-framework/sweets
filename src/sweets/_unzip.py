@@ -12,10 +12,15 @@ def unzip_one(filepath: Filename, pol: str = "vv", out_dir=Path(".")):
     """Unzip one Sentinel-1 zip file."""
     if pol is None:
         pol = ""
+
+    # unzip all of these
+    to_unzip = [pol.lower(), "preview", "support", "manifest.safe"]
     with zipfile.ZipFile(filepath, "r") as zipref:
         # Get the list of files in the zip
         names_to_extract = [
-            fp for fp in zipref.namelist() if pol.lower() in str(fp).lower()
+            fp
+            for fp in zipref.namelist()
+            if any(key in str(fp).lower() for key in to_unzip)
         ]
         zipref.extractall(path=out_dir, members=names_to_extract)
 

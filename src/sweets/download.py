@@ -37,7 +37,6 @@ from shapely import wkt
 from ._log import get_log, log_runtime
 from ._types import Filename
 from ._unzip import unzip_one
-from .utils import get_cache_dir
 
 logger = get_log(__name__)
 
@@ -178,7 +177,7 @@ class ASFQuery(BaseModel):
 
     @log_runtime
     def download(self) -> List[Path]:
-        # Start by saving data available as a metalink file
+        # Start by saving data available as geojson
         results = self.query_results()
 
         # Make the output directory
@@ -186,22 +185,18 @@ class ASFQuery(BaseModel):
         self.out_dir.mkdir(parents=True, exist_ok=True)
 
         urls = self._get_urls(results)
-        # Make a tempfile to hold the urls
-        url_file = Path(get_cache_dir() / "asf_urls.txt")
         file_names = [self.out_dir / f for f in self._file_names(results)]
 
         # Exclude already-downloaded files
-        downloaded = set([f for f in file_names if f.exists()])
-        to_download = list(set(file_names) - downloaded)
+        to_do_files, to_do_urls = zip(
+            *((f, u) for f, u in zip(file_names, urls) if not f.exists())
+        )
         logger.info(
-            f"Found {len(downloaded)}/{len(file_names)} files already downloaded"
+            f"Missing {len(to_do_files)}/{len(file_names)} files. Downloading..."
         )
 
-        with open(url_file, "w") as f:
-            f.write("\n".join((str(f) for f in to_download)) + "\n")
-
         background_threads = []
-        for url, outfile in zip(urls, to_download):
+        for url, outfile in zip(to_do_urls, to_do_files):
             cmd = f"wget --no-clobber -O {outfile} {url}"
 
             logger.info(cmd)
