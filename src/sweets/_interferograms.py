@@ -97,7 +97,6 @@ def main():
     """Create one interferogram from two SLCs."""
     args = _get_cli_args()
     Client(
-        processes=False,
         threads_per_worker=4,
         n_workers=args.n_workers,
         memory_limit=f"{args.max_ram_gb}GB",
