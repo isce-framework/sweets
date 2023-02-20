@@ -3,21 +3,26 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
 from sweets._log import get_log
+from sweets._types import Filename
 
 logger = get_log()
 
 
-def unzip_one(filepath, pol="vv", out_dir=Path(".")):
+def unzip_one(filepath: Filename, pol: str = "vv", out_dir=Path(".")):
     """Unzip one Sentinel-1 zip file."""
     if pol is None:
         pol = ""
     with zipfile.ZipFile(filepath, "r") as zipref:
         # Get the list of files in the zip
-        names_to_extract = [fp for fp in zipref.namelist() if pol in fp]
+        names_to_extract = [
+            fp for fp in zipref.namelist() if pol.lower() in str(fp).lower()
+        ]
         zipref.extractall(path=out_dir, members=names_to_extract)
 
 
-def unzip_all(path=".", pol="vv", delete_zips=False, n_workers=4):
+def unzip_all(
+    path: Filename = ".", pol: str = "vv", delete_zips: bool = False, n_workers: int = 4
+):
     """Find all .zips and unzip them, skipping overwrites."""
     zip_files = list(Path(path).glob("S1[AB]_*IW*.zip"))
     logger.info(f"Found {len(zip_files)} zip files to unzip")

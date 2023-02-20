@@ -19,9 +19,11 @@ import json
 import os
 import subprocess
 import sys
+import zipfile
 from datetime import date, datetime
 from functools import lru_cache
 from pathlib import Path
+from threading import Thread
 from typing import Any, List, Optional
 from urllib.parse import urlencode
 
@@ -32,6 +34,8 @@ from pydantic import BaseModel, Extra, Field, PrivateAttr, root_validator, valid
 from shapely import wkt
 
 from ._log import get_log, log_runtime
+from ._types import Filename
+from ._unzip import unzip_one
 from .utils import get_cache_dir
 
 logger = get_log()
@@ -85,6 +89,10 @@ class ASFQuery(BaseModel):
         alias="flightDirection",
         choices=["ASCENDING", "DESCENDING"],
         description="Ascending or descending",
+    )
+    unzip: bool = Field(
+        True,
+        description="Unzip downloaded files into .SAFE directories",
     )
     _url: str = PrivateAttr()
 
@@ -187,11 +195,25 @@ class ASFQuery(BaseModel):
         with open(url_file, "w") as f:
             f.write("\n".join((str(f) for f in to_download)) + "\n")
 
+        unzip_threads = []
         for url, outfile in zip(urls, to_download):
             cmd = f"wget --no-clobber -O {outfile} {url}"
 
             logger.info(cmd)
             subprocess.check_call(cmd, shell=True)
+            if self.unzip:
+                # unzip in a background thread
+                # unzip_one(outfile, out_dir=self.out_dir)
+                t = Thread(
+                    target=unzip_one, args=(outfile,), kwargs=dict(out_dir=self.out_dir)
+                )
+                t.start()
+                unzip_threads.append(t)
+
+        # Now wait for the unzipping (if any)
+        for t in unzip_threads:
+            t.join()
+
         return file_names
 
     @staticmethod
@@ -286,6 +308,18 @@ def cli():
         q.query_only()
     else:
         q.download_data()
+
+
+def _unzip_one(filepath: Filename, pol: str = "vv", out_dir=Path(".")):
+    """Unzip one Sentinel-1 zip file."""
+    if pol is None:
+        pol = ""
+    with zipfile.ZipFile(filepath, "r") as zipref:
+        # Get the list of files in the zip
+        names_to_extract = [
+            fp for fp in zipref.namelist() if pol.lower() in str(fp).lower()
+        ]
+        zipref.extractall(path=out_dir, members=names_to_extract)
 
 
 if __name__ == "__main__":
