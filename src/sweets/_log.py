@@ -19,12 +19,8 @@ import logging
 import time
 from collections.abc import Callable
 from functools import wraps
-from typing import Optional
 
-from rich.console import Console
 from rich.logging import RichHandler
-
-from ._types import Filename
 
 __all__ = ["get_log", "log_runtime"]
 
@@ -32,7 +28,6 @@ __all__ = ["get_log", "log_runtime"]
 def get_log(
     name: str = "dolphin._log",
     debug: bool = False,
-    filename: Optional[Filename] = None,
 ) -> logging.Logger:
     """Create a nice log format for use across multiple files.
 
@@ -53,12 +48,10 @@ def get_log(
     logging.Logger
     """
     logger = logging.getLogger(name)
-    return format_log(logger, debug=debug, filename=filename)
+    return format_log(logger, debug=debug)
 
 
-def format_log(
-    logger: logging.Logger, debug: bool = False, filename: Optional[Filename] = None
-) -> logging.Logger:
+def format_log(logger: logging.Logger, debug: bool = False) -> logging.Logger:
     """Make the logging output pretty and colored with times.
 
     Parameters
@@ -79,10 +72,6 @@ def format_log(
     if not logger.handlers:
         logger.addHandler(RichHandler(rich_tracebacks=True, level=log_level))
         logger.setLevel(log_level)
-
-    if filename is not None:
-        console = Console(file=open(filename, "w"))
-        logger.addHandler(RichHandler(console=console, level=log_level))
 
     if debug:
         logger.setLevel(debug)
