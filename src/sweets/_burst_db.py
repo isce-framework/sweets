@@ -15,9 +15,7 @@ URL = "https://github.com/scottstanie/burst_db/raw/test-json-gz/src/burst_db/dat
 logger = get_log()
 
 
-def get_burst_db(
-    url: str = URL, out_file: Optional[Filename] = None
-) -> Dict[str, List[str]]:
+def get_burst_db(url: str = URL, out_file: Optional[Filename] = None) -> Path:
     """Read or download the burst-db file.
 
     Parameters
@@ -44,14 +42,14 @@ def get_burst_db(
 
     if out_file.exists():
         logger.info(f"Using cached burst DB at {out_file}")
-        return _read_burst_json(out_file)
+        return out_file
 
     logger.info(f"Downloading {url}...")
     r = requests.get(url)
     r.raise_for_status()
     with open(out_file, "wb") as f:
         f.write(r.content)
-    return _read_burst_json(out_file)
+    return out_file
 
 
 @functools.lru_cache(maxsize=2)

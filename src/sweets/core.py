@@ -11,7 +11,7 @@ from dateutil.parser import parse
 from pydantic import BaseModel, Extra, Field, PrivateAttr, validator
 
 from ._burst_db import get_burst_db
-from ._geocode_slcs import _create_config_files
+from ._geocode_slcs import create_config_files, run_geocode
 from ._log import get_log, log_runtime
 from ._orbits import download_orbits
 from .dem import DEM
@@ -65,6 +65,10 @@ class Workflow(BaseModel):
         4,
         description="Number of workers to use for processing.",
     )
+    threads_per_worker: int = Field(
+        2,
+        description="Number of threads per worker.",
+    )
     _client: Client = PrivateAttr()
 
     class Config:
@@ -100,9 +104,9 @@ class Workflow(BaseModel):
 
     def __init__(self, **data: Any) -> None:
         super().__init__(**data)
-        # Scale later
         logger.info("Starting Dask cluster")
-        self._client = Client(n_workers=1, threads_per_worker=1)
+        # Start with 1 worker, scale later upon kicking off `run`
+        self._client = Client(n_workers=1, threads_per_worker=self.threads_per_worker)
 
     @log_runtime
     def run(self):
@@ -140,7 +144,7 @@ class Workflow(BaseModel):
 
         # TODO: unzip, probably in download
         # any reason to do this async?
-        cfg_files = _create_config_files(
+        compass_cfg_files = create_config_files(
             slc_dir=slc_data_path,
             burst_db_file=burst_db_file,
             dem_file=dem_file,
@@ -148,4 +152,10 @@ class Workflow(BaseModel):
             bbox=self.bbox,
             out_dir=Path("gslcs"),
         )
-        return cfg_files
+
+        # Run the geocodings
+        gslc_futures = []
+        for cfg_file in compass_cfg_files:
+            gslc_futures.append(self._client.submit(run_geocode, cfg_file))
+        gslc_files = self._client.gather(gslc_futures)
+        return gslc_files
