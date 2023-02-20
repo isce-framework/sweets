@@ -31,6 +31,7 @@ __all__ = ["get_log", "log_runtime"]
 
 def get_log(
     debug: bool = False,
+    name: str = "dolphin._log",
     filename: Optional[Filename] = None,
 ) -> logging.Logger:
     """Create a nice log format for use across multiple files.
@@ -41,6 +42,9 @@ def get_log(
     ----------
     debug : bool, optional
         If true, sets logging level to DEBUG (Default value = False)
+    name : str, optional
+        The name the logger will use when printing statements
+        (Default value = "dolphin._log")
     filename : Filename, optional
         If provided, will log to this file in addition to stderr.
 
@@ -48,7 +52,7 @@ def get_log(
     -------
     logging.Logger
     """
-    logger = logging.getLogger("sweets")
+    logger = logging.getLogger(name)
     return format_log(logger, debug=debug, filename=filename)
 
 
