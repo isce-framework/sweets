@@ -17,6 +17,8 @@ from ._orbits import download_orbits
 from .dem import DEM
 from .download import ASFQuery
 
+logger = get_log(__name__)
+
 
 class Workflow(BaseModel):
     """Class for end-to-end processing of Sentinel-1 data."""
@@ -67,10 +69,10 @@ class Workflow(BaseModel):
         2,
         description="Number of threads per worker.",
     )
-    log_file: Path = Field(
-        Path("sweets.log"),
-        description="Path to log file.",
-    )
+    # log_file: Path = Field(
+    #     Path("sweets.log"),
+    #     description="Path to log file.",
+    # )
     _client: Client = PrivateAttr()
 
     class Config:
@@ -96,13 +98,17 @@ class Workflow(BaseModel):
     def _create_query(cls, v, values):
         if v is not None:
             return v
-        bbox = values.get("bbox")
-        return ASFQuery(
-            bbox=bbox,
+        meta = dict(
+            bbox=values.get("bbox"),
             start=values.get("start"),
             end=values.get("end"),
             relativeOrbit=values.get("track"),
         )
+
+        if "orbit_dir" in values:
+            # only set if they've passed one
+            meta["orbit_dir"] = values["orbit_dir"]
+        return ASFQuery(**meta)
 
     def __init__(self, **data: Any) -> None:
         super().__init__(**data)
@@ -112,7 +118,7 @@ class Workflow(BaseModel):
     @log_runtime
     def run(self):
         """Run the workflow."""
-        logger = get_log(filename=self.log_file)
+        # logger = get_log(filename=self.log_file)
         logger.info(f"Scaling dask cluster to {self.n_workers} workers")
         self._client.cluster.scale(self.n_workers)
         # TODO: background processing maybe with prefect

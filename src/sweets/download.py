@@ -29,6 +29,7 @@ from urllib.parse import urlencode
 
 import requests
 from dateutil.parser import parse
+from eof.download import download_eofs
 from osgeo import gdal
 from pydantic import BaseModel, Extra, Field, PrivateAttr, root_validator, validator
 from shapely import wkt
@@ -93,6 +94,10 @@ class ASFQuery(BaseModel):
     unzip: bool = Field(
         True,
         description="Unzip downloaded files into .SAFE directories",
+    )
+    orbit_dir: Path = Field(
+        Path(".") / "orbit",
+        description="Directory for orbit files",
     )
     _url: str = PrivateAttr()
 
@@ -195,7 +200,7 @@ class ASFQuery(BaseModel):
         with open(url_file, "w") as f:
             f.write("\n".join((str(f) for f in to_download)) + "\n")
 
-        unzip_threads = []
+        background_threads = []
         for url, outfile in zip(urls, to_download):
             cmd = f"wget --no-clobber -O {outfile} {url}"
 
@@ -208,10 +213,19 @@ class ASFQuery(BaseModel):
                     target=unzip_one, args=(outfile,), kwargs=dict(out_dir=self.out_dir)
                 )
                 t.start()
-                unzip_threads.append(t)
+                background_threads.append(t)
+            # Also start a thread to download the orbit
+
+            t = Thread(
+                target=download_eofs,
+                kwargs=dict(
+                    sentinel_file=outfile,
+                    save_dir=self.orbit_dir,
+                ),
+            )
 
         # Now wait for the unzipping (if any)
-        for t in unzip_threads:
+        for t in background_threads:
             t.join()
 
         if self.unzip:
