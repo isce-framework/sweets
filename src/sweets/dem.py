@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from sweets._log import get_log, log_runtime
 from sweets.utils import get_cache_dir
 
-logger = get_log()
+logger = get_log(__name__)
 
 
 class DEM(BaseModel):

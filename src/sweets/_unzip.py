@@ -5,7 +5,7 @@ from pathlib import Path
 from sweets._log import get_log
 from sweets._types import Filename
 
-logger = get_log()
+logger = get_log(__name__)
 
 
 def unzip_one(filepath: Filename, pol: str = "vv", out_dir=Path(".")):

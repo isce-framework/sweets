@@ -12,7 +12,7 @@ from .utils import get_cache_dir
 
 URL = "https://github.com/scottstanie/burst_db/raw/test-json-gz/src/burst_db/data/burst_map_bbox_only.json.gz"  # noqa
 
-logger = get_log()
+logger = get_log(__name__)
 
 
 def get_burst_db(url: str = URL, out_file: Optional[Filename] = None) -> Path:

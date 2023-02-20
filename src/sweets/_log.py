@@ -5,7 +5,7 @@ Uses the standard python logging utilities + Rich formatting.
 Usage:
 
     from ._log import get_log
-    logger = get_log()
+    logger = get_log(__name__)
 
     logger.info("Something happened")
     logger.warning("Something concerning happened")
@@ -30,8 +30,8 @@ __all__ = ["get_log", "log_runtime"]
 
 
 def get_log(
-    debug: bool = False,
     name: str = "dolphin._log",
+    debug: bool = False,
     filename: Optional[Filename] = None,
 ) -> logging.Logger:
     """Create a nice log format for use across multiple files.
@@ -99,7 +99,7 @@ def log_runtime(f: Callable) -> Callable:
     def test_func():
         return 2 + 4
     """
-    logger = get_log()
+    logger = get_log(__name__)
 
     @wraps(f)
     def wrapper(*args, **kwargs):

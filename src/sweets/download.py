@@ -38,7 +38,7 @@ from ._types import Filename
 from ._unzip import unzip_one
 from .utils import get_cache_dir
 
-logger = get_log()
+logger = get_log(__name__)
 
 DIRNAME = os.path.dirname(os.path.abspath(__file__))
 

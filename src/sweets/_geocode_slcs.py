@@ -8,7 +8,7 @@ from compass.utils.geo_runconfig import GeoRunConfig
 from ._log import get_log
 from ._types import Filename
 
-logger = get_log()
+logger = get_log(__name__)
 
 # TODO: do i ever care to change these?
 X_SPAC = 5
