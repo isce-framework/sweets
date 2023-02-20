@@ -5,6 +5,8 @@ from pathlib import Path
 from typing import Any, List, Optional
 
 from dask.distributed import Client
+
+# from dask import delayed
 from dateutil.parser import parse
 from pydantic import BaseModel, Extra, Field, PrivateAttr, validator
 
@@ -108,18 +110,35 @@ class Workflow(BaseModel):
 
         logger.info(f"Scaling dask cluster to {self.n_workers} workers")
         self._client.cluster.scale(self.n_workers)
-
-        # TODO: background processing, maybe with dask or prefect
+        # TODO: background processing maybe with prefect
         # https://examples.dask.org/applications/prefect-etl.html
-        # downloaded_files = self.asf_query.download_data()
-        downloaded_files = self._client.submit(self.asf_query.download)
-        slc_data_path = self.asf_query.out_dir
 
-        self._client.submit(download_orbits, slc_data_path, self.orbit_dir)
+        dem_file = self._client.submit(self.dem.create)
+        burst_db_file = self._client.submit(download_burst_db)
+        # dem_create = delayed(self.dem.create)
+        # dem_file = dem_create()
+        # burst_db_file = delayed(download_burst_db)()
+
+        logger.warn("!!!!!!!!")
+        downloaded_files = self._client.submit(self.asf_query.download)
+        # Use .parent so that next step knows it depends on the result
+        slc_data_path = downloaded_files.result()[0].parent
+        logger.warn("!!!!!!!!")
+        logger.warn(f"slc_data_path: {slc_data_path}")
+
+        # asf_download = delayed(self.asf_query.download)
+        # downloaded_files = asf_download()
+        # slc_data_path = self.asf_query.out_dir
+
+        orbit_files = self._client.submit(
+            download_orbits, slc_data_path, self.orbit_dir
+        )
 
         dem_file = self._client.submit(self.dem.create)
         burst_db_file = self._client.submit(download_burst_db)
 
         # Wait until all the files are downloaded
         # downloaded_files, dem_file, burst_db_file = self._client.gather(
-        return self._client.gather([downloaded_files, dem_file, burst_db_file])
+        return self._client.gather(
+            [downloaded_files, dem_file, burst_db_file, orbit_files]
+        )
