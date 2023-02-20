@@ -1,7 +1,6 @@
 """Exports a get_log function which sets up easy logging.
 
-Uses the standard python logging utilities, just provides
-nice formatting out of the box across multiple files.
+Uses the standard python logging utilities + Rich formatting.
 
 Usage:
 
@@ -20,13 +19,21 @@ import logging
 import time
 from collections.abc import Callable
 from functools import wraps
+from typing import Optional
 
+from rich.console import Console
 from rich.logging import RichHandler
+
+from ._types import Filename
 
 __all__ = ["get_log", "log_runtime"]
 
 
-def get_log(debug: bool = False, name: str = "dolphin._log") -> logging.Logger:
+def get_log(
+    debug: bool = False,
+    name: str = "dolphin._log",
+    filename: Optional[Filename] = None,
+) -> logging.Logger:
     """Create a nice log format for use across multiple files.
 
     Default logging level is INFO
@@ -38,20 +45,49 @@ def get_log(debug: bool = False, name: str = "dolphin._log") -> logging.Logger:
     name : str, optional
         The name the logger will use when printing statements
         (Default value = "dolphin._log")
+    filename : Filename, optional
+        If provided, will log to this file in addition to stderr.
 
     Returns
     -------
     logging.Logger
     """
-    format_ = "%(message)s"
-    # format_ = "[%(asctime)s] [%(levelname)s %(filename)s] %(message)s"
-    # formatter = Formatter(format_, datefmt="%m/%d %H:%M:%S")
-    log_level = logging.DEBUG if debug else logging.INFO
-    logging.basicConfig(
-        level=log_level, format=format_, datefmt="[%X]", handlers=[RichHandler()]
-    )
+    logger = logging.getLogger(name)
+    return format_log(logger, debug=debug, filename=filename)
 
-    return logging.getLogger(name)
+
+def format_log(
+    logger: logging.Logger, debug: bool = False, filename: Optional[Filename] = None
+) -> logging.Logger:
+    """Make the logging output pretty and colored with times.
+
+    Parameters
+    ----------
+    logger : logging.Logger
+        The logger to format
+    debug : bool (Default value = False)
+        If true, sets logging level to DEBUG
+    filename : Filename, optional
+        If provided, will log to this file in addition to stderr.
+
+    Returns
+    -------
+    logging.Logger
+    """
+    log_level = logging.DEBUG if debug else logging.INFO
+
+    if not logger.handlers:
+        logger.addHandler(RichHandler(rich_tracebacks=True, level=log_level))
+        logger.setLevel(log_level)
+
+    if filename is not None:
+        console = Console(file=open(filename))
+        logger.addHandler(RichHandler(console=console, level=log_level))
+
+    if debug:
+        logger.setLevel(debug)
+
+    return logger
 
 
 def log_runtime(f: Callable) -> Callable:

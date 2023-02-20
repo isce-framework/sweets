@@ -2,7 +2,7 @@ from datetime import date, datetime
 
 # from os import fspath
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any, Optional, Tuple
 
 from dask.distributed import Client
 
@@ -10,7 +10,8 @@ from dask.distributed import Client
 from dateutil.parser import parse
 from pydantic import BaseModel, Extra, Field, PrivateAttr, validator
 
-from ._burst_db import download_burst_db
+from ._burst_db import get_burst_db
+from ._geocode_slcs import _create_config_files
 from ._log import get_log, log_runtime
 from ._orbits import download_orbits
 from .dem import DEM
@@ -23,7 +24,7 @@ class Workflow(BaseModel):
     """Class for end-to-end processing of Sentinel-1 data."""
 
     # Steps
-    bbox: tuple = Field(
+    bbox: Tuple[float, ...] = Field(
         ...,
         description=(
             "lower left lon, lat, upper right format e.g."
@@ -104,7 +105,7 @@ class Workflow(BaseModel):
         self._client = Client(n_workers=1, threads_per_worker=1)
 
     @log_runtime
-    def run(self) -> List[str]:
+    def run(self):
         """Run the workflow."""
         # start our Dask cluster
 
@@ -114,10 +115,10 @@ class Workflow(BaseModel):
         # https://examples.dask.org/applications/prefect-etl.html
 
         dem_file = self._client.submit(self.dem.create)
-        burst_db_file = self._client.submit(download_burst_db)
+        burst_db_file = self._client.submit(get_burst_db)
         # dem_create = delayed(self.dem.create)
         # dem_file = dem_create()
-        # burst_db_file = delayed(download_burst_db)()
+        # burst_db_file = delayed(get_burst_db)()
 
         downloaded_files = self._client.submit(self.asf_query.download)
         # Use .parent so that next step knows it depends on the result
@@ -131,11 +132,20 @@ class Workflow(BaseModel):
             download_orbits, slc_data_path, self.orbit_dir
         )
 
-        dem_file = self._client.submit(self.dem.create)
-        burst_db_file = self._client.submit(download_burst_db)
-
         # Wait until all the files are downloaded
-        # downloaded_files, dem_file, burst_db_file = self._client.gather(
-        return self._client.gather(
+        downloaded_files, dem_file, burst_db_file, orbit_files = self._client.gather(
+            # return self._client.gather(
             [downloaded_files, dem_file, burst_db_file, orbit_files]
         )
+
+        # TODO: unzip, probably in download
+        # any reason to do this async?
+        cfg_files = _create_config_files(
+            slc_dir=slc_data_path,
+            burst_db_file=burst_db_file,
+            dem_file=dem_file,
+            orbit_dir=self.orbit_dir,
+            bbox=self.bbox,
+            out_dir=Path("gslcs"),
+        )
+        return cfg_files

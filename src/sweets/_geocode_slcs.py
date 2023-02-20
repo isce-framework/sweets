@@ -1,7 +1,9 @@
 from pathlib import Path
-from typing import List, Union
+from typing import List, Optional, Tuple
 
-from compass import s1_geocode_stack
+from compass import s1_cslc, s1_geocode_stack
+
+from ._types import Filename
 
 # TODO: do i ever care to change these?
 X_SPAC = 5
@@ -9,12 +11,18 @@ Y_SPAC = 10
 POL = "VV"
 
 
+def run(run_config_path: Filename):
+    """Run a single geocoding run config."""
+    s1_cslc.run(run_config_path)
+
+
 def _create_config_files(
-    slc_dir: Union[str, Path],
-    burst_db_file: Union[str, Path],
-    dem_file: Union[str, Path],
-    orbit_dir: Union[str, Path],
-    out_dir: Union[str, Path] = Path("gslcs"),
+    slc_dir: Filename,
+    burst_db_file: Filename,
+    dem_file: Filename,
+    orbit_dir: Filename,
+    bbox: Optional[Tuple[float, ...]] = None,
+    out_dir: Filename = Path("gslcs"),
 ) -> List[Path]:
     s1_geocode_stack.run(
         slc_dir=slc_dir,
@@ -22,6 +30,7 @@ def _create_config_files(
         orbit_dir=orbit_dir,
         work_dir=out_dir,
         burst_db_file=burst_db_file,
+        bbox=bbox,
         pol=POL,
         x_spac=X_SPAC,
         y_spac=Y_SPAC,
