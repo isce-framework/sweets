@@ -15,3 +15,10 @@ dependencies:
   - ruamel.yaml>=0.15
   - scipy>=1.5 # "scipy 0.16+ is required for linear algebra", numba. 1.5 is the oldest version that supports Python 3.7
   - tqdm>=4.60
+
+  - jupyter-server-proxy
+  - rich
+  - dask
+  - pip:
+    - git+https://github.com/opera-adt/COMPASS
+    - git+https://github.com/opera-adt/s1reader

@@ -5,8 +5,10 @@ from typing import List
 import sardem.dem
 from pydantic import BaseModel, Field
 
-from sweets._log import log_runtime
+from sweets._log import get_log, log_runtime
 from sweets.utils import get_cache_dir
+
+logger = get_log()
 
 
 class DEM(BaseModel):
@@ -25,8 +27,13 @@ class DEM(BaseModel):
     )
 
     @log_runtime
-    def create(self):
+    def create(self) -> Path:
         """Create the DEM."""
+        self.output_name = self.output_name.resolve()
+        if self.output_name.exists():
+            logger.info(f"DEM already exists: {self.output_name}")
+            return self.output_name
+
         sardem.dem.main(
             output_name=fspath(self.output_name),
             bbox=self.bbox,
@@ -35,3 +42,4 @@ class DEM(BaseModel):
             output_format="GTiff",
             output_type="Float32",
         )
+        return self.output_name

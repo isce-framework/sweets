@@ -18,16 +18,17 @@ import argparse
 import json
 import os
 import subprocess
+import sys
 from datetime import date, datetime
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, List, Optional
 from urllib.parse import urlencode
 
 import requests
 from dateutil.parser import parse
 from osgeo import gdal
-from pydantic import BaseModel, Field, PrivateAttr, root_validator, validator
+from pydantic import BaseModel, Extra, Field, PrivateAttr, root_validator, validator
 from shapely import wkt
 
 from ._log import get_log, log_runtime
@@ -87,6 +88,9 @@ class ASFQuery(BaseModel):
     )
     _url: str = PrivateAttr()
 
+    class Config:
+        extra = Extra.forbid  # raise error if extra fields passed in
+
     @validator("start", "end", pre=True)
     def _parse_date(cls, v):
         if isinstance(v, datetime):
@@ -96,7 +100,7 @@ class ASFQuery(BaseModel):
             return datetime.combine(v, datetime.min.time())
         return parse(v)
 
-    @validator("out_dir")
+    @validator("out_dir", always=True)
     def _is_absolute(cls, v):
         return Path(v).resolve()
 
@@ -127,9 +131,9 @@ class ASFQuery(BaseModel):
     def __init__(self, **data: Any) -> None:
         super().__init__(**data)
         # Form the url for the ASF query.
-        self._url = self.form_url()
+        self._url = self._form_url()
 
-    def form_url(self):
+    def _form_url(self) -> str:
         """Form the url for the ASF query."""
         params = dict(
             bbox=",".join(map(str, self.bbox)) if self.bbox else None,
@@ -147,43 +151,48 @@ class ASFQuery(BaseModel):
         base_url = "https://api.daac.asf.alaska.edu/services/search/param?{params}"
         return base_url.format(params=urlencode(params))
 
-    def query_results(self):
+    def query_results(self) -> dict:
         """Query the ASF API and save the results to a file."""
         return _query_url(self._url)
 
     @staticmethod
-    def _get_urls(results):
+    def _get_urls(results: dict) -> List[str]:
         return [r["properties"]["url"] for r in results["features"]]
 
     @staticmethod
-    def _file_names(results):
+    def _file_names(results: dict) -> List[str]:
         return [r["properties"]["fileName"] for r in results["features"]]
 
     @log_runtime
-    def download(self):
+    def download(self) -> List[Path]:
         # Start by saving data available as a metalink file
         results = self.query_results()
+
+        # Make the output directory
+        logger.info(f"Saving to {self.out_dir}")
+        self.out_dir.mkdir(parents=True, exist_ok=True)
 
         urls = self._get_urls(results)
         # Make a tempfile to hold the urls
         url_file = Path(get_cache_dir() / "asf_urls.txt")
-        file_names = self._file_names(results)
+        file_names = [self.out_dir / f for f in self._file_names(results)]
+
         # Exclude already-downloaded files
-        downloaded = set([f for f in file_names if (self.out_dir / f).exists()])
+        downloaded = set([f for f in file_names if f.exists()])
         to_download = list(set(file_names) - downloaded)
         logger.info(
             f"Found {len(downloaded)}/{len(file_names)} files already downloaded"
         )
 
         with open(url_file, "w") as f:
-            f.write("\n".join(to_download) + "\n")
+            f.write("\n".join((str(f) for f in to_download)) + "\n")
 
-        outfiles = [self.out_dir / f for f in to_download]
-        for url, outfile in zip(urls, outfiles):
+        for url, outfile in zip(urls, to_download):
             cmd = f"wget --no-clobber -O {outfile} {url}"
 
             logger.info(cmd)
             subprocess.check_call(cmd, shell=True)
+        return file_names
 
     @staticmethod
     def _get_dem_bbox(fname):
@@ -200,10 +209,10 @@ class ASFQuery(BaseModel):
 
 
 @lru_cache(maxsize=10)
-def _query_url(url):
+def _query_url(url: str) -> dict:
     """Query the ASF API and save the results to a file."""
     logger.info("Querying url:")
-    logger.info(url)
+    print(url, file=sys.stderr)
     resp = requests.get(url)
     resp.raise_for_status()
     results = json.loads(resp.content.decode("utf-8"))
