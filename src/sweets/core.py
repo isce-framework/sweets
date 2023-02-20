@@ -17,8 +17,6 @@ from ._orbits import download_orbits
 from .dem import DEM
 from .download import ASFQuery
 
-logger = get_log()
-
 
 class Workflow(BaseModel):
     """Class for end-to-end processing of Sentinel-1 data."""
@@ -69,6 +67,10 @@ class Workflow(BaseModel):
         2,
         description="Number of threads per worker.",
     )
+    log_file: Path = Field(
+        Path("sweets.log"),
+        description="Path to log file.",
+    )
     _client: Client = PrivateAttr()
 
     class Config:
@@ -104,15 +106,13 @@ class Workflow(BaseModel):
 
     def __init__(self, **data: Any) -> None:
         super().__init__(**data)
-        logger.info("Starting Dask cluster")
         # Start with 1 worker, scale later upon kicking off `run`
         self._client = Client(n_workers=1, threads_per_worker=self.threads_per_worker)
 
     @log_runtime
     def run(self):
         """Run the workflow."""
-        # start our Dask cluster
-
+        logger = get_log(filename=self.log_file)
         logger.info(f"Scaling dask cluster to {self.n_workers} workers")
         self._client.cluster.scale(self.n_workers)
         # TODO: background processing maybe with prefect

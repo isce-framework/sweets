@@ -81,7 +81,7 @@ def format_log(
         logger.setLevel(log_level)
 
     if filename is not None:
-        console = Console(file=open(filename))
+        console = Console(file=open(filename, "w"))
         logger.addHandler(RichHandler(console=console, level=log_level))
 
     if debug:
