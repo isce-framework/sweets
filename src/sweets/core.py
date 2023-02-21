@@ -1,4 +1,3 @@
-from collections import defaultdict
 from datetime import date, datetime
 
 # from os import fspath
@@ -9,6 +8,7 @@ from dask.distributed import Client
 
 # from dask import delayed
 from dateutil.parser import parse
+from dolphin import io, stitching
 from dolphin.interferogram import Network
 from dolphin.workflows import group_by_burst
 from dolphin.workflows.config import OPERA_DATASET_NAME
@@ -200,7 +200,8 @@ class Workflow(BaseModel):
         # Group the SLCs by burst:
         # {'t078_165573_iw2': [PosixPath('gslcs/t078_165573_iw2/20221029/...
         burst_to_gslc = group_by_burst(gslc_files)
-        burst_to_ifgs = defaultdict(list)
+        # burst_to_ifgs = defaultdict(list)
+        ifg_path_list = []
         for burst, gslc_files in burst_to_gslc.items():
             outdir = Path("interferograms") / burst
             outdir.mkdir(parents=True, exist_ok=True)
@@ -211,12 +212,45 @@ class Workflow(BaseModel):
                 max_bandwidth=self.max_bandwidth,
                 subdataset=OPERA_DATASET_NAME,
             )
+            logger.info(
+                f"Creating {len(network)} interferograms for burst {burst} in {outdir}"
+            )
 
+            ifg_futures = []
             for vrt_ifg in network.ifg_list:
                 # ifg_file = create_ifg(vrt_ifg)
-                ifg_file = self._client.submit(create_ifg, vrt_ifg, self.looks)
-                burst_to_ifgs[burst].append(ifg_file)
+                ifg_fut = self._client.submit(create_ifg, vrt_ifg, self.looks)
 
-        for burst, future_list in burst_to_ifgs.items():
-            burst_to_ifgs[burst] = self._client.gather(future_list)
-        print(burst_to_ifgs)
+                ifg_futures.append(ifg_fut)
+
+            cur_ifg_paths = self._client.gather(ifg_futures)
+            # burst_to_ifgs[burst].extend(cur_ifg_paths)
+            ifg_path_list.extend(cur_ifg_paths)
+            # Make sure we free up the memory
+            self._client.cancel(ifg_futures)
+
+        # Finally, stitch the interferograms together
+        grouped_images = stitching._group_by_date(ifg_path_list)
+
+        stitched_dir = Path("interferograms") / "stitched"
+        stitched_dir.mkdir(parents=True, exist_ok=True)
+        stitched_files = []
+        futures = []
+        for dates, cur_images in grouped_images.items():
+            logger.info(f"{dates}: Stitching {len(cur_images)} images.")
+            stitched_dir.mkdir(parents=True, exist_ok=True)
+            outfile = stitched_dir / (io._format_date_pair(*dates) + ".int")
+            stitched_files.append(outfile)
+
+            futures.append(
+                self._client.submit(
+                    stitching.merge_images,
+                    cur_images,
+                    outfile=outfile,
+                    driver="ENVI",
+                    overwrite=False,
+                )
+            )
+
+        self._client.gather(futures)
+        return stitched_files

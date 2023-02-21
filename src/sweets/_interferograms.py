@@ -1,4 +1,5 @@
 import argparse
+import warnings
 from pathlib import Path
 from typing import Tuple
 
@@ -11,7 +12,6 @@ from dolphin import utils
 from dolphin.interferogram import VRTInterferogram
 from dolphin.io import DEFAULT_HDF5_OPTIONS, write_arr
 from dolphin.workflows.config import OPERA_DATASET_NAME
-from numpy.typing import ArrayLike
 
 from ._log import get_log, log_runtime
 from ._types import Filename
@@ -19,7 +19,9 @@ from ._types import Filename
 logger = get_log(__name__)
 
 
-def create_ifg(vrt_ifg: VRTInterferogram, looks: Tuple[int, int]) -> Path:
+def create_ifg(
+    vrt_ifg: VRTInterferogram, looks: Tuple[int, int], overwrite: bool = False
+) -> Path:
     """Create a multi-looked, normalized interferogram from a VRTInterferogram.
 
     Parameters
@@ -28,6 +30,8 @@ def create_ifg(vrt_ifg: VRTInterferogram, looks: Tuple[int, int]) -> Path:
         Virtual interferogram from `dolphin` containing single-looked ifg data.
     looks : Tuple[int, int]
         row looks, column looks.
+    overwrite : bool, optional
+        Overwrite existing interferogram, by default False.
 
     Returns
     -------
@@ -39,19 +43,27 @@ def create_ifg(vrt_ifg: VRTInterferogram, looks: Tuple[int, int]) -> Path:
     # suffix = ".int" if to_binary else ".h5"
     suffix = ".tif"
     outfile = vrt_ifg.path.with_suffix(suffix)
+    if outfile.exists():
+        if not overwrite:
+            logger.info(f"Skipping {outfile} because it already exists.")
+            return outfile
+        else:
+            logger.info(f"Overwriting {outfile} because overwrite=True.")
+            outfile.unlink()
+
     with h5py.File(ref_slc, "r") as f, h5py.File(sec_slc, "r") as g:
-        ref_dset = f[OPERA_DATASET_NAME]
-        sec_dset = g[OPERA_DATASET_NAME]
+        ref_da = da.from_array(f[OPERA_DATASET_NAME])
+        sec_da = da.from_array(g[OPERA_DATASET_NAME])
         # PerformanceWarning: Reshaping is producing a large chunk...
         with dask.config.set(**{"array.slicing.split_large_chunks": False}):
-            _form_ifg(ref_dset, sec_dset, looks, outfile, ref_filename=vrt_ifg.ref_slc)
+            _form_ifg(ref_da, sec_da, looks, outfile, ref_filename=vrt_ifg.ref_slc)
 
     return outfile
 
 
 def _form_ifg(
-    dset1: ArrayLike,
-    dset2: ArrayLike,
+    da1: da.Array,
+    da2: da.Array,
     looks: Tuple[int, int],
     outfile: Filename,
     ref_filename=None,
@@ -60,10 +72,10 @@ def _form_ifg(
 
     Parameters
     ----------
-    dset1 : ArrayLike
-        First dataset
-    dset2 : ArrayLike
-        Second dataset
+    da1 : dask.array.Array
+        First SLC loaded as a dask array
+    da2 : da.array.Array
+        Secondary SLC loaded as a dask array
     looks : Tuple[int, int]
         (row looks, column looks)
     outfile : Filename
@@ -73,8 +85,8 @@ def _form_ifg(
         Reference filename where the geo metadata comes from, by default None
 
     """
-    da1 = da.from_array(dset1)
-    da2 = da.from_array(dset2)
+    da1 = da.from_array(da1)
+    da2 = da.from_array(da2)
 
     # Phase cross multiply for numerator
     numer = utils.take_looks(da1 * da2.conj(), *looks, func_type="mean")
@@ -83,12 +95,16 @@ def _form_ifg(
     pow1 = utils.take_looks((da1 * da1.conj()).real, *looks, func_type="mean")
     pow2 = utils.take_looks((da2 * da2.conj()).real, *looks, func_type="mean")
     denom = np.sqrt(pow1 * pow2)
-    ifg = numer / denom
+    # RuntimeWarning: invalid value encountered in divide
+    # filter out warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=RuntimeWarning)
+        ifg = (numer / denom).astype("complex64")
 
     # TODO: do I care to save it as ENVI? I don't think so.
     if Path(outfile).suffix == ".tif":
         # Since each multi-looked burst will be small, just load into memory.
-        ifg_np = np.array(ifg.astype(np.complex64))
+        ifg_np = ifg.compute()
         # with open(outfile, "wb") as f:
         # TODO: alternative is .store with a memmap
         # https://docs.dask.org/en/stable/generated/dask.array.store.html#dask.array.store
@@ -159,9 +175,9 @@ def main():
         memory_limit=f"{args.max_ram_gb}GB",
     )
     with h5py.File(args.slcs[0]) as hf1, h5py.File(args.slcs[1]) as hf2:
-        dset1 = hf1[args.dset]
-        dset2 = hf2[args.dset]
-        create_ifg(dset1, dset2, args.looks, outfile=args.outfile)
+        da1 = da.from_array(hf1[args.dset])
+        da2 = da.from_array(hf2[args.dset])
+        create_ifg(da1, da2, args.looks, outfile=args.outfile)
 
 
 if __name__ == "__main__":
