@@ -2,11 +2,15 @@ import argparse
 from pathlib import Path
 from typing import Tuple
 
+import dask
 import dask.array as da
 import h5py
 import numpy as np
 from dask.distributed import Client
 from dolphin import utils
+from dolphin.interferogram import VRTInterferogram
+from dolphin.io import DEFAULT_HDF5_OPTIONS, write_arr
+from dolphin.workflows.config import OPERA_DATASET_NAME
 from numpy.typing import ArrayLike
 
 from ._log import get_log, log_runtime
@@ -15,10 +19,44 @@ from ._types import Filename
 logger = get_log(__name__)
 
 
-def create_ifg(
-    dset1: ArrayLike, dset2: ArrayLike, looks: Tuple[int, int], outfile: Filename
+def create_ifg(vrt_ifg: VRTInterferogram, looks: Tuple[int, int]) -> Path:
+    """Create a multi-looked, normalized interferogram from a VRTInterferogram.
+
+    Parameters
+    ----------
+    vrt_ifg : VRTInterferogram
+        Virtual interferogram from `dolphin` containing single-looked ifg data.
+    looks : Tuple[int, int]
+        row looks, column looks.
+
+    Returns
+    -------
+    Path
+        Path to Geotiff file containing the multi-looked, normalized interferogram.
+    """
+    ref_slc = utils._get_path_from_gdal_str(vrt_ifg.ref_slc)
+    sec_slc = utils._get_path_from_gdal_str(vrt_ifg.sec_slc)
+    # suffix = ".int" if to_binary else ".h5"
+    suffix = ".tif"
+    outfile = vrt_ifg.path.with_suffix(suffix)
+    with h5py.File(ref_slc, "r") as f, h5py.File(sec_slc, "r") as g:
+        ref_dset = f[OPERA_DATASET_NAME]
+        sec_dset = g[OPERA_DATASET_NAME]
+        # PerformanceWarning: Reshaping is producing a large chunk...
+        with dask.config.set(**{"array.slicing.split_large_chunks": False}):
+            _form_ifg(ref_dset, sec_dset, looks, outfile, ref_filename=vrt_ifg.ref_slc)
+
+    return outfile
+
+
+def _form_ifg(
+    dset1: ArrayLike,
+    dset2: ArrayLike,
+    looks: Tuple[int, int],
+    outfile: Filename,
+    ref_filename=None,
 ):
-    """Create a normalized ifg from two flat binary files using dask.
+    """Create a normalized ifg from two SLC files using dask.
 
     Parameters
     ----------
@@ -30,22 +68,41 @@ def create_ifg(
         (row looks, column looks)
     outfile : Filename
         Output file to write to.
+        Supported file types are .h5 and .int (binary)
+    ref_filename : str, optional
+        Reference filename where the geo metadata comes from, by default None
 
     """
-    if Path(outfile).suffix != ".h5":
-        raise ValueError("Output file must be a .h5 file")
-
     da1 = da.from_array(dset1)
     da2 = da.from_array(dset2)
 
+    # Phase cross multiply for numerator
     numer = utils.take_looks(da1 * da2.conj(), *looks, func_type="mean")
 
+    # Normalize so absolute value is correlation
     pow1 = utils.take_looks((da1 * da1.conj()).real, *looks, func_type="mean")
     pow2 = utils.take_looks((da2 * da2.conj()).real, *looks, func_type="mean")
     denom = np.sqrt(pow1 * pow2)
     ifg = numer / denom
 
-    ifg.to_hdf5(outfile, "ifg")
+    # TODO: do I care to save it as ENVI? I don't think so.
+    if Path(outfile).suffix == ".tif":
+        # Since each multi-looked burst will be small, just load into memory.
+        ifg_np = np.array(ifg.astype(np.complex64))
+        # with open(outfile, "wb") as f:
+        # TODO: alternative is .store with a memmap
+        # https://docs.dask.org/en/stable/generated/dask.array.store.html#dask.array.store
+        write_arr(
+            arr=ifg_np,
+            output_name=outfile,
+            like_filename=ref_filename,
+            strides={"x": looks[1], "y": looks[0]},
+            nodata=np.nan,
+        )
+    else:
+        # TODO: saving as HDF5 will be more work to get the projection copied over
+        DEFAULT_HDF5_OPTIONS["chunks"] = tuple(DEFAULT_HDF5_OPTIONS["chunks"])
+        ifg.to_hdf5(outfile, "ifg", **DEFAULT_HDF5_OPTIONS)
 
 
 def _form_ifg_name(slc1: Filename, slc2: Filename, out_dir: Filename) -> Path:

@@ -1,3 +1,4 @@
+from collections import defaultdict
 from datetime import date, datetime
 
 # from os import fspath
@@ -8,10 +9,14 @@ from dask.distributed import Client
 
 # from dask import delayed
 from dateutil.parser import parse
+from dolphin.interferogram import Network
+from dolphin.workflows import group_by_burst
+from dolphin.workflows.config import OPERA_DATASET_NAME
 from pydantic import BaseModel, Extra, Field, PrivateAttr, validator
 
 from ._burst_db import get_burst_db
 from ._geocode_slcs import create_config_files, run_geocode
+from ._interferograms import create_ifg
 from ._log import get_log, log_runtime
 from ._orbits import download_orbits
 from .dem import DEM
@@ -61,6 +66,22 @@ class Workflow(BaseModel):
         Path("orbits"),
         description="Directory for orbit files.",
     )
+
+    # Interferogram network
+    # TODO: make into separate class
+    looks: Tuple[int, int] = Field(
+        (6, 12),
+        description="Row looks, column looks. Default is 6, 12 (for 60x60 m).",
+    )
+    max_bandwidth: Optional[float] = Field(
+        4,
+        description="Form interferograms using the nearest n- dates",
+    )
+    max_temporal_baseline: Optional[float] = Field(
+        None,
+        description="Alt. to max_bandwidth: maximum temporal baseline in days.",
+    )
+
     n_workers: int = Field(
         4,
         description="Number of workers to use for processing.",
@@ -69,11 +90,11 @@ class Workflow(BaseModel):
         2,
         description="Number of threads per worker.",
     )
+    _client: Client = PrivateAttr()
     # log_file: Path = Field(
     #     Path("sweets.log"),
     #     description="Path to log file.",
     # )
-    _client: Client = PrivateAttr()
 
     class Config:
         extra = Extra.forbid  # raise error if extra fields passed in
@@ -109,6 +130,16 @@ class Workflow(BaseModel):
             # only set if they've passed one
             meta["orbit_dir"] = values["orbit_dir"]
         return ASFQuery(**meta)
+
+    @validator("max_temporal_baseline")
+    def _check_max_temporal_baseline(cls, v, values):
+        """Make sure they didn't specify max_bandwidth and max_temporal_baseline."""
+        max_bandwidth = values.get("max_bandwidth")
+        if max_bandwidth is not None and v is not None:
+            raise ValueError(
+                "Cannot specify both max_bandwidth and max_temporal_baseline"
+            )
+        return v
 
     def __init__(self, **data: Any) -> None:
         super().__init__(**data)
@@ -165,4 +196,27 @@ class Workflow(BaseModel):
         for cfg_file in compass_cfg_files:
             gslc_futures.append(self._client.submit(run_geocode, cfg_file))
         gslc_files = self._client.gather(gslc_futures)
-        return gslc_files
+
+        # Group the SLCs by burst:
+        # {'t078_165573_iw2': [PosixPath('gslcs/t078_165573_iw2/20221029/...
+        burst_to_gslc = group_by_burst(gslc_files)
+        burst_to_ifgs = defaultdict(list)
+        for burst, gslc_files in burst_to_gslc.items():
+            outdir = Path("interferograms") / burst
+            outdir.mkdir(parents=True, exist_ok=True)
+            network = Network(
+                gslc_files,
+                outdir=outdir,
+                max_temporal_baseline=self.max_temporal_baseline,
+                max_bandwidth=self.max_bandwidth,
+                subdataset=OPERA_DATASET_NAME,
+            )
+
+            for vrt_ifg in network.ifg_list:
+                # ifg_file = create_ifg(vrt_ifg)
+                ifg_file = self._client.submit(create_ifg, vrt_ifg, self.looks)
+                burst_to_ifgs[burst].append(ifg_file)
+
+        for burst, future_list in burst_to_ifgs.items():
+            burst_to_ifgs[burst] = self._client.gather(future_list)
+        print(burst_to_ifgs)
