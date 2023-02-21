@@ -188,9 +188,12 @@ class ASFQuery(BaseModel):
         file_names = [self.out_dir / f for f in self._file_names(results)]
 
         # Exclude already-downloaded files
-        to_do_files, to_do_urls = zip(
-            *((f, u) for f, u in zip(file_names, urls) if not f.exists())
-        )
+        done_files = [f for f in file_names if f.exists()]
+        to_do_files, to_do_urls = [], []
+        for f, u in zip(file_names, urls):
+            if f not in done_files:
+                to_do_files.append(f)
+                to_do_urls.append(u)
         logger.info(
             f"Missing {len(to_do_files)}/{len(file_names)} files. Downloading..."
         )

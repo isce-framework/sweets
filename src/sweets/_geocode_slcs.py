@@ -42,12 +42,12 @@ def run_geocode(run_config_path: Filename, compress: bool = True) -> Path:
     if not outfile.exists():
         logger.info(f"Running geocoding for {run_config_path}")
         s1_geocode_slc.run(cfg)
+        if compress:
+            logger.info(f"Compressing {outfile}...")
+            repack_and_compress(outfile)
     else:
         logger.info(f"Skipping geocoding for {run_config_path}, {outfile} exists.")
 
-    if compress:
-        logger.info(f"Compressing {outfile}...")
-        repack_and_compress(outfile)
     return outfile
 
 
