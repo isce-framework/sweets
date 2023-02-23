@@ -299,6 +299,7 @@ class Workflow(BaseModel):
         unwrap_futures = []
         unwrapped_files = []
         outdir = Path("interferograms") / "unwrapped"
+        outdir.mkdir(parents=True, exist_ok=True)
         for ifg_file, cor_file in zip(stitched_ifg_files, cor_files):
             # outfile = ifg_file.with_suffix(".unw")
             outfile = outdir / ifg_file.name.replace(".int", ".unw")
