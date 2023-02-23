@@ -4,7 +4,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Optional, Tuple
 
-from dask.distributed import Client
+from dask.distributed import Client, Future
 from dateutil.parser import parse
 from dolphin import io, stitching, unwrap
 from dolphin.interferogram import Network
@@ -102,7 +102,7 @@ class Workflow(BaseModel):
     # )
 
     class Config:
-        extra = Extra.forbid  # raise error if extra fields passed in
+        extra = Extra.allow  # Let us set arbitrary attributes later
 
     @validator("start", "end", pre=True)
     def _parse_date(cls, v):
@@ -139,17 +139,16 @@ class Workflow(BaseModel):
             bbox[2] - 0.05,
             bbox[3] - 0.05,
         )
-        meta = dict(
+        asf_params = dict(
             bbox=query_bbox,
             start=values.get("start"),
             end=values.get("end"),
             relativeOrbit=values.get("track"),
         )
-
         if "orbit_dir" in values:
             # only set if they've passed one
-            meta["orbit_dir"] = values["orbit_dir"]
-        return ASFQuery(**meta)
+            asf_params["orbit_dir"] = values["orbit_dir"]
+        return ASFQuery(**asf_params)
 
     @validator("max_temporal_baseline", pre=True)
     def _check_max_temporal_baseline(cls, v, values):
@@ -171,43 +170,34 @@ class Workflow(BaseModel):
         self._client = Client(n_workers=1, threads_per_worker=self.threads_per_worker)
 
     @log_runtime
-    def run(self):
-        """Run the workflow."""
-        # logger = get_log(filename=self.log_file)
-        logger.info(f"Scaling dask cluster to {self.n_workers} workers")
-        self._client.cluster.scale(self.n_workers)
-        # TODO: background processing maybe with prefect
-        # https://examples.dask.org/applications/prefect-etl.html
+    def _download_dem(self) -> Future:
+        """Kick off download/creation the DEM."""
+        return self._client.submit(self.dem.create)
 
-        dem_file = self._client.submit(self.dem.create)
-        burst_db_file = self._client.submit(get_burst_db)
-        # dem_create = delayed(self.dem.create)
-        # dem_file = dem_create()
-        # burst_db_file = delayed(get_burst_db)()
+    @log_runtime
+    def _download_burst_db(self) -> Future:
+        """Kick off download of burst database to get the GSLC bbox/EPSG."""
+        return self._client.submit(get_burst_db)
 
+    @log_runtime
+    def _download_rslcs(self) -> Tuple[Future, Future]:
+        """Download Sentinel zip files from ASF."""
         # TODO: probably can download a few at a time
-        downloaded_files = self._client.submit(self.asf_query.download)
+        rslc_futures = self._client.submit(self.asf_query.download)
+
         # Use .parent of the .result() so that next step depends on the result
-        slc_data_path = downloaded_files.result()[0].parent
-
-        # asf_download = delayed(self.asf_query.download)
-        # downloaded_files = asf_download()
-        # slc_data_path = self.asf_query.out_dir
-
-        orbit_files = self._client.submit(
-            download_orbits, slc_data_path, self.orbit_dir
+        rslc_data_path = rslc_futures.result()[0].parent
+        orbit_futures = self._client.submit(
+            download_orbits, rslc_data_path, self.orbit_dir
         )
+        return rslc_futures, orbit_futures
 
-        # Wait until all the files are downloaded
-        downloaded_files, dem_file, burst_db_file, orbit_files = self._client.gather(
-            # return self._client.gather(
-            [downloaded_files, dem_file, burst_db_file, orbit_files]
-        )
-
+    @log_runtime
+    def _geocode_slcs(self, slc_files, dem_file, burst_db_file):
         # TODO: unzip, probably in download
         # any reason to do this async?
         compass_cfg_files = create_config_files(
-            slc_dir=slc_data_path,
+            slc_dir=slc_files[0].parent,
             burst_db_file=burst_db_file,
             dem_file=dem_file,
             orbit_dir=self.orbit_dir,
@@ -216,19 +206,34 @@ class Workflow(BaseModel):
             overwrite=self.overwrite,
         )
 
-        # Run the geocodings
+        def cfg_to_filename(cfg_path: Path) -> str:
+            # Convert the YAML filename to a .h5 filename with date switched
+            # geo_runconfig_20221029_t078_165578_iw3.yaml -> t078_165578_iw2_20221029.h5
+            date = cfg_path.name.split("_")[2]
+            burst = "_".join(cfg_path.stem.split("_")[3:])
+            return f"{burst}_{date}.h5"
+
+        # Check which ones we have without submitting a future
         gslc_futures = []
+        gslc_files = []
+        existing_paths = Path("gslcs").glob("**/*.h5")
+        name_to_paths = {p.name: p for p in existing_paths}
+        logger.info(f"Found {len(name_to_paths)} existing GSLC files")
         for cfg_file in compass_cfg_files:
-            gslc_futures.append(self._client.submit(run_geocode, cfg_file))
-        gslc_files = self._client.gather(gslc_futures)
+            name = cfg_to_filename(cfg_file)
+            if name in name_to_paths:
+                gslc_files.append(name_to_paths[name])
+            else:
+                # Run the geocoding if we dont have it already
+                gslc_futures.append(self._client.submit(run_geocode, cfg_file))
+        gslc_files.extend(self._client.gather(gslc_futures))
+        return gslc_files
 
-        # These GSLCs will all have their own bbox.
-        # Make VRTs for each burst that all have the same specified bbox.
-
+    @log_runtime
+    def _create_burst_interferograms(self, gslc_files):
         # Group the SLCs by burst:
-        # {'t078_165573_iw2': [PosixPath('gslcs/t078_165573_iw2/20221029/...
+        # {'t078_165573_iw2': [PosixPath('gslcs/t078_165573_iw2/20221029/...], 't078_...
         burst_to_gslc = group_by_burst(gslc_files)
-        # burst_to_ifgs = defaultdict(list)
         ifg_path_list = []
         for burst, gslc_files in burst_to_gslc.items():
             outdir = Path("interferograms") / burst
@@ -249,26 +254,21 @@ class Workflow(BaseModel):
                 ifg_fut = self._client.submit(
                     create_ifg, vrt_ifg, self.looks, bbox=self.bbox
                 )
-                # ifg_fut = self._client.submit(
-                #     create_ifg,
-                #     vrt_ifg,
-                #     self.looks,
                 #     overlapping_with=dem_file,
-                # )
 
                 ifg_futures.append(ifg_fut)
 
             cur_ifg_paths = self._client.gather(ifg_futures)
-            # burst_to_ifgs[burst].extend(cur_ifg_paths)
             ifg_path_list.extend(cur_ifg_paths)
             # Make sure we free up the memory
             self._client.cancel(ifg_futures)
 
-        # #####################
-        # Stitch interferograms
-        # #####################
+        return ifg_path_list
+
+    def _stitch_interferograms(self, ifg_path_list):
         grouped_images = stitching._group_by_date(ifg_path_list)
 
+        # TODO: Should prob make sure these dirs are in some good place
         stitched_dir = Path("interferograms") / "stitched"
         stitched_dir.mkdir(parents=True, exist_ok=True)
         stitched_ifg_files = []
@@ -296,15 +296,14 @@ class Workflow(BaseModel):
         for ifg_file in stitched_ifg_files:
             cor_futures.append(self._client.submit(create_cor, ifg_file))
         cor_files = self._client.gather(cor_futures)
+        return stitched_ifg_files, cor_files
 
-        # #########################
-        # Unwrap the interferograms
-        # #########################
+    def _unwrap_ifgs(self, ifg_files, cor_files):
         unwrap_futures = []
         unwrapped_files = []
         outdir = Path("interferograms") / "unwrapped"
         outdir.mkdir(parents=True, exist_ok=True)
-        for ifg_file, cor_file in zip(stitched_ifg_files, cor_files):
+        for ifg_file, cor_file in zip(ifg_files, cor_files):
             # outfile = ifg_file.with_suffix(".unw")
             outfile = outdir / ifg_file.name.replace(".int", ".unw")
             unwrapped_files.append(outfile)
@@ -327,4 +326,26 @@ class Workflow(BaseModel):
         # Add in the rest of the ones we ran
         self._client.gather(unwrap_futures)
         # TODO: Copy the projection to these
+        return unwrapped_files
+
+    @log_runtime
+    def run(self):
+        """Run the workflow."""
+        # TODO: background processing maybe with prefect
+        # https://examples.dask.org/applications/prefect-etl.html
+        logger.info(f"Scaling dask cluster to {self.n_workers} workers")
+        self._client.cluster.scale(self.n_workers)
+
+        dem_fut = self._download_dem()
+        burst_db_fut = self._download_burst_db()
+        rslc_futures, orbit_futures = self._download_rslcs()
+        # Gather the futures once everything is downloaded
+        dem_file, burst_db_file = self._client.gather([dem_fut, burst_db_fut])
+        rslc_files, orbit_files = self._client.gather([rslc_futures, orbit_futures])
+
+        gslc_files = self._geocode_slcs(rslc_files, dem_file, burst_db_file)
+        ifg_path_list = self._create_burst_interferograms(gslc_files)
+        stitched_ifg_files, cor_files = self._stitch_interferograms(ifg_path_list)
+        unwrapped_files = self._unwrap_ifgs(stitched_ifg_files, cor_files)
+
         return unwrapped_files
