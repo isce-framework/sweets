@@ -303,10 +303,11 @@ class Workflow(BaseModel):
         for ifg_file, cor_file in zip(stitched_ifg_files, cor_files):
             # outfile = ifg_file.with_suffix(".unw")
             outfile = outdir / ifg_file.name.replace(".int", ".unw")
+            unwrapped_files.append(outfile)
             if outfile.exists():
                 logger.info(f"{outfile} exists. Skipping.")
-                unwrapped_files.append(outfile)
             else:
+                logger.info(f"Unwrapping {ifg_file} to {outfile}")
                 unwrap_futures.append(
                     self._client.submit(
                         unwrap.unwrap,
@@ -320,6 +321,5 @@ class Workflow(BaseModel):
                 )
 
         # Add in the rest of the ones we ran
-        unwrapped_files.extend(self._client.gather(unwrap_futures))
-
+        self._client.gather(unwrap_futures)
         return unwrapped_files
