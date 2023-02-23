@@ -9,9 +9,9 @@ if __name__ == "__main__":
     # midland eq
     # TexNetEvent(event_id='texnet2022yplg', dt=datetime.datetime(2022, 12, 16, 23, ),
     # magnitude=5.22863731, latitude=32.19085693, longitude=-102.1406965, depth=8.1923)
-    lon, lat = -102.6406965, 31.6908
-    bbox = Point(lon, lat).buffer(0.3).bounds
-    start, end, track, n_workers, tpw = "2022-10-15", "2023-02-20", 78, 8, 8
+    lon, lat = -102.1407, 32.1909
+    bbox = Point(lon, lat).buffer(0.2).bounds
+    start, end, track, n_workers, tpw = "2022-10-15", "2023-02-20", 78, 10, 8
 
     w = core.Workflow(
         bbox=bbox,
