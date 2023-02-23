@@ -21,5 +21,7 @@ if __name__ == "__main__":
         track=track,
         n_workers=n_workers,
         threads_per_worker=tpw,
+        # max_bandwidth=18,
+        max_temporal_baseline=180,
     )
     print(w.run())  # Print out the final output results

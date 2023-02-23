@@ -74,7 +74,7 @@ class Workflow(BaseModel):
         (6, 12),
         description="Row looks, column looks. Default is 6, 12 (for 60x60 m).",
     )
-    max_bandwidth: Optional[float] = Field(
+    max_bandwidth: Optional[int] = Field(
         4,
         description="Form interferograms using the nearest n- dates",
     )
@@ -151,11 +151,15 @@ class Workflow(BaseModel):
             meta["orbit_dir"] = values["orbit_dir"]
         return ASFQuery(**meta)
 
-    @validator("max_temporal_baseline")
+    @validator("max_temporal_baseline", pre=True)
     def _check_max_temporal_baseline(cls, v, values):
         """Make sure they didn't specify max_bandwidth and max_temporal_baseline."""
+        if v is None:
+            return v
         max_bandwidth = values.get("max_bandwidth")
-        if max_bandwidth is not None and v is not None:
+        if max_bandwidth == cls.schema()["properties"]["max_bandwidth"]["default"]:
+            values["max_bandwidth"] = None
+        else:
             raise ValueError(
                 "Cannot specify both max_bandwidth and max_temporal_baseline"
             )
@@ -322,4 +326,5 @@ class Workflow(BaseModel):
 
         # Add in the rest of the ones we ran
         self._client.gather(unwrap_futures)
+        # TODO: Copy the projection to these
         return unwrapped_files
