@@ -1,22 +1,98 @@
 import argparse
+import os
 
 
-def main(args=None):
-    """Top-level command line interface to the workflows."""
-    import sweets.workflows._config_cli
-    import sweets.workflows._run_cli
-
+def _get_cli_args():
     parser = argparse.ArgumentParser(
         prog=__package__,
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    subparser = parser.add_subparsers(title="subcommands")
+    parser._action_groups.pop()
+    required = parser.add_argument_group("required arguments")
+    optional = parser.add_argument_group("optional arguments")
+    required.add_argument(
+        "-b",
+        "--bbox",
+        nargs=4,
+        metavar=("left", "bottom", "right", "top"),
+        type=float,
+        help=(
+            "Bounding box of area of interest "
+            " (e.g. --bbox -106.1 30.1 -103.1 33.1 ). \n"
+            "--bbox points to the *edges* of the pixels, \n"
+            " following the 'pixel is area' convention as used in gdal. "
+        ),
+    )
+    required.add_argument(
+        "--start",
+        help="Starting date for query (recommended: YYYY-MM-DD)",
+    )
+    required.add_argument(
+        "--track",
+        type=int,
+        required=True,
+        help="Limit to one path / relativeOrbit",
+    )
 
-    # Adds the subcommand to the top-level parser
-    sweets.workflows._run_cli.get_parser(subparser, "run")
-    sweets.workflows._config_cli.get_parser(subparser, "config")
-    parsed_args = parser.parse_args(args=args)
+    optional.add_argument(
+        "--end",
+        help="Ending date for query (recommended: YYYY-MM-DD). Defaults to today.",
+    )
+    optional.add_argument(
+        "--looks",
+        type=int,
+        nargs=2,
+        metavar=("az_looks", "range_looks"),
+        default=[6, 12],
+        help=(
+            "Number of looks in azimuth (rows) and range (cols) to use for"
+            " interferograms (e.g. --looks 6 12). GSLCs are geocoded at 10m x 5m"
+            " posting, so default looks of 6x12 are 60m x 60m."
+        ),
+    )
+    optional.add_argument(
+        "-t",
+        "--max-temporal-baseline",
+        type=int,
+        default=180,
+        help="Maximum temporal baseline (in days) to consider for interferograms.",
+    )
+    optional.add_argument(
+        "--n-workers",
+        type=int,
+        default=4,
+        help="Number of dask workers (processes) to use for parallel processing.",
+    )
+    optional.add_argument(
+        "--n-threads",
+        type=int,
+        default=16,
+        help=(
+            "For each workers, number of threads to use (e.g. in numpy multithreading)."
+        ),
+    )
+    return parser.parse_args()
 
-    arg_dict = vars(parsed_args)
-    run_func = arg_dict.pop("run_func")
-    run_func(**arg_dict)
+
+def main(args=None):
+    """Top-level command line interface to the workflows."""
+    args = _get_cli_args()
+    # Note: importing below here so that we can set the number of threads
+    # https://docs.dask.org/en/stable/array-best-practices.html#avoid-oversubscribing-threads
+    os.environ["OMP_NUM_THREADS"] = str(args.n_threads)
+    os.environ["OPENBLAS_NUM_THREADS"] = str(args.n_threads)
+    os.environ["MKL_NUM_THREADS"] = str(args.n_threads)
+
+    from sweets.core import Workflow
+
+    workflow = Workflow(
+        bbox=args.bbox,
+        start=args.start,
+        end=args.end,
+        track=args.track,
+        looks=args.looks,
+        max_temporal_baseline=args.max_temporal_baseline,
+        n_workers=args.n_workers,
+        threads_per_worker=args.n_threads,
+    )
+    workflow.run()
