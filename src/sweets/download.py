@@ -23,20 +23,18 @@ import zipfile
 from datetime import date, datetime
 from functools import lru_cache
 from pathlib import Path
-from threading import Thread
 from typing import Any, List, Optional
 from urllib.parse import urlencode
 
 import requests
 from dateutil.parser import parse
-from eof.download import download_eofs
 from osgeo import gdal
 from pydantic import BaseModel, Extra, Field, PrivateAttr, root_validator, validator
 from shapely import wkt
 
 from ._log import get_log, log_runtime
 from ._types import Filename
-from ._unzip import unzip_one
+from ._unzip import unzip_all
 
 logger = get_log(__name__)
 
@@ -175,6 +173,15 @@ class ASFQuery(BaseModel):
     def _file_names(results: dict) -> List[str]:
         return [r["properties"]["fileName"] for r in results["features"]]
 
+    def _download_with_aria(self, urls):
+        url_filename = self.out_dir / "urls.txt"
+        with open(self.out_dir / url_filename, "w") as f:
+            for u in urls:
+                f.write(u + "\n")
+
+        aria_cmd = f'aria2c -i "{url_filename}" -d "{self.out_dir}" --continue=true'
+        subprocess.run(aria_cmd, shell=True)
+
     @log_runtime
     def download(self) -> List[Path]:
         # Start by saving data available as geojson
@@ -195,45 +202,20 @@ class ASFQuery(BaseModel):
                 to_do_files.append(f)
                 to_do_urls.append(u)
         msg = f"Missing {len(to_do_files)}/{len(file_names)} files. "
+
         if len(to_do_files) == 0:
             msg += "All files already downloaded."
         else:
             msg += "Downloading..."
         logger.info(msg)
 
-        background_threads = []
-        for url, outfile in zip(to_do_urls, to_do_files):
-            cmd = f"wget --no-clobber -O {outfile} {url}"
-
-            logger.info(cmd)
-            subprocess.check_call(cmd, shell=True)
-            if self.unzip:
-                # unzip in a background thread
-                # unzip_one(outfile, out_dir=self.out_dir)
-                t = Thread(
-                    target=unzip_one, args=(outfile,), kwargs=dict(out_dir=self.out_dir)
-                )
-                t.start()
-                background_threads.append(t)
-
-            # Also start a thread to download the orbit
-            t = Thread(
-                target=download_eofs,
-                kwargs=dict(
-                    sentinel_file=os.fspath(outfile),
-                    save_dir=os.fspath(self.orbit_dir),
-                ),
-            )
-            t.start()
-            background_threads.append(t)
-
-        # Now wait for the unzipping (if any)
-        for t in background_threads:
-            t.join()
+        if to_do_urls:
+            self._download_with_aria(to_do_urls)
 
         if self.unzip:
             # Change to .SAFE extension
-            file_names = [f.with_suffix(".SAFE") for f in file_names]
+            logger.info("Unzipping files...")
+            file_names = unzip_all(self.out_dir)
         return file_names
 
     @staticmethod

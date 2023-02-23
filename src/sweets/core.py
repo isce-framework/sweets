@@ -20,6 +20,7 @@ from ._config import _add_comments
 from ._geocode_slcs import create_config_files, run_geocode
 from ._interferograms import create_cor, create_ifg
 from ._log import get_log, log_runtime
+from ._orbit import download_orbits
 from ._types import Filename
 from .dem import DEM
 from .download import ASFQuery
@@ -55,7 +56,7 @@ class Workflow(BaseModel):
             " `dateutil.parse`)"
         ),
     )
-    track: Optional[int] = Field(
+    track: int = Field(
         None,
         description="Path number",
     )
@@ -137,6 +138,10 @@ class Workflow(BaseModel):
             return v
         # Shrink the data query bbox by a little bit
         bbox = values.get("bbox")
+        track = values.get("track")
+        if track is None:
+            raise ValueError("Must specify either track for asf_query")
+
         query_bbox = (
             bbox[0] + 0.05,
             bbox[1] + 0.05,
@@ -147,7 +152,7 @@ class Workflow(BaseModel):
             bbox=query_bbox,
             start=values.get("start"),
             end=values.get("end"),
-            relativeOrbit=values.get("track"),
+            relativeOrbit=track,
         )
         if "orbit_dir" in values:
             # only set if they've passed one
@@ -386,7 +391,6 @@ class Workflow(BaseModel):
         completed_procs = self._client.gather(unwrap_futures)
         logger.info(f"Unwrapped {len(completed_procs)} interferograms.")
         # TODO: Maybe check the return codes here? or log the snaphu output?
-        # TODO: Copy the projection to these
         return unwrapped_files
 
     @log_runtime
@@ -404,9 +408,16 @@ class Workflow(BaseModel):
         dem_fut = self._download_dem()
         burst_db_fut = self._download_burst_db()
         rslc_futures = self._download_rslcs()
+        # Use .parent of the .result() so that next step depends on the result
+        rslc_data_path = rslc_futures.result()[0].parent
+        orbit_futures = self._client.submit(
+            download_orbits, rslc_data_path, self.orbit_dir
+        )
+
         # Gather the futures once everything is downloaded
         dem_file, burst_db_file = self._client.gather([dem_fut, burst_db_fut])
         rslc_files = rslc_futures.result()
+        orbit_futures.result()
 
         gslc_files = self._geocode_slcs(rslc_files, dem_file, burst_db_file)
         ifg_path_list = self._create_burst_interferograms(gslc_files)
