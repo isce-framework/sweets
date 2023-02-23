@@ -7,18 +7,17 @@ dependencies:
   - git  # for pip install, due to setuptools_scm
   - gdal>=3.3
   - h5py>=3.6
-  - numba>=0.54
   - numpy>=1.20
   - pydantic>=1.10
-  - pymp-pypi>=0.4.5
   - pyproj>=3.2
   - ruamel.yaml>=0.15
-  - scipy>=1.5 # "scipy 0.16+ is required for linear algebra", numba. 1.5 is the oldest version that supports Python 3.7
   - tqdm>=4.60
 
-  - jupyter-server-proxy
   - rich
+  - rioxarray
   - dask
+  - jupyter-server-proxy
   - pip:
     - git+https://github.com/opera-adt/COMPASS
     - git+https://github.com/opera-adt/s1reader
+    - git+https://github.com/opera-adt/dolphin  # will this work?
