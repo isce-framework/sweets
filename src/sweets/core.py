@@ -246,9 +246,9 @@ class Workflow(BaseModel):
                 subdataset=OPERA_DATASET_NAME,
             )
             logger.info(
-                f"Creating {len(network)} interferograms for burst {burst} in {outdir}"
+                f"{len(network)} interferograms to create for burst {burst} in {outdir}"
             )
-
+            logger.info(f"{len(list(outdir.glob('*.tif')))} existing interferograms")
             ifg_futures = []
             for vrt_ifg in network.ifg_list:
                 ifg_fut = self._client.submit(
@@ -317,14 +317,17 @@ class Workflow(BaseModel):
                         ifg_file,
                         outfile,
                         cor_file,
+                        looks=self.looks,
                         do_tile=False,  # Probably make this an option too
                         init_method="mst",  # TODO: make this an option?
-                        looks=self.looks,
+                        alt_line_data=False,
                     )
                 )
 
         # Add in the rest of the ones we ran
-        self._client.gather(unwrap_futures)
+        completed_procs = self._client.gather(unwrap_futures)
+        logger.info(f"Unwrapped {len(completed_procs)} interferograms.")
+        # TODO: Maybe check the return codes here? or log the snaphu output?
         # TODO: Copy the projection to these
         return unwrapped_files
 
@@ -333,6 +336,8 @@ class Workflow(BaseModel):
         """Run the workflow."""
         # TODO: background processing maybe with prefect
         # https://examples.dask.org/applications/prefect-etl.html
+        # TODO: maybe log the run times like this:
+        # https://distributed.dask.org/en/stable/logging.html
         logger.info(f"Scaling dask cluster to {self.n_workers} workers")
         self._client.cluster.scale(self.n_workers)
 

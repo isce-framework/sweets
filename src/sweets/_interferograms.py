@@ -88,10 +88,10 @@ def create_ifg(
     outfile = vrt_ifg.path.with_suffix(suffix)
     if outfile.exists():
         if not overwrite:
-            logger.info(f"Skipping {outfile} because it already exists.")
+            logger.debug(f"Skipping {outfile} because it already exists.")
             return outfile
         else:
-            logger.info(f"Overwriting {outfile} because overwrite=True.")
+            logger.debug(f"Overwriting {outfile} because overwrite=True.")
             outfile.unlink()
 
     logger.info(f"Creating {looks[0]}x{looks[1]} multi-looked interferogram: {outfile}")
@@ -226,7 +226,7 @@ def create_cor(ifg_filename: Filename, outfile: Optional[Filename] = None):
     if outfile is None:
         outfile = Path(ifg_filename).with_suffix(".cor")
     da_ifg = rioxarray.open_rasterio(ifg_filename, chunks=True)
-    np.abs(da_ifg).rio.to_raster(outfile, driver="ENVI")
+    np.abs(da_ifg).rio.to_raster(outfile, driver="ENVI", suffix="add")
     return outfile
 
 
