@@ -39,15 +39,15 @@ class Workflow(BaseModel):
     start: datetime = Field(
         None,
         description=(
-            "Starting time for search. Many acceptable inputs e.g. '3 months and a day"
-            " ago' 'May 30, 2018' '2010-10-30T00:00:00Z'"
+            "Starting time for search. Can be datetime or string (goes to"
+            " `dateutil.parse`)"
         ),
     )
     end: datetime = Field(
-        None,
+        default_factory=datetime.now,
         description=(
-            "Ending time for search. Many acceptable inputs e.g. '3 months and a day"
-            " ago' 'May 30, 2018' '2010-10-30T00:00:00Z'"
+            "Ending time for search. Can be datetime or string (goes to"
+            " `dateutil.parse`)"
         ),
     )
     track: Optional[int] = Field(
@@ -113,7 +113,7 @@ class Workflow(BaseModel):
         return parse(v)
 
     @validator("dem", pre=True, always=True)
-    def _use_same_bbox(cls, v, values):
+    def _use_same_bbox(cls, v, values, config, field):
         if v is not None:
             return v
         # Expand the bbox a little bit so DEM fully covers the data

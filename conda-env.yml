@@ -2,22 +2,24 @@ name: sweets-env
 channels:
   - conda-forge
 dependencies:
-  - python>=3.7,<3.11
+  - python>=3.7
   - pip>=21.3  # https://pip.pypa.io/en/stable/reference/build-system/pyproject-toml/#editable-installation
   - git  # for pip install, due to setuptools_scm
+  - aria2 # ASF Downloading
   - gdal>=3.3
   - h5py>=3.6
   - numpy>=1.20
   - pydantic>=1.10
-  - pyproj>=3.2
   - ruamel.yaml>=0.15
-  - tqdm>=4.60
-
-  - rich
-  - rioxarray
-  - dask
-  - jupyter-server-proxy
+  - rich>=13.0
+  - rioxarray>=0.13
+  - dask>= 2022.6.0
+  - scipy>=1.5 # extra from COMPASS
+  - pyproj>=3.2 # extra from COMPASS
+  - pandas  # extra from COMPASS
+  - lxml    # extra from COMPASS
+  - yamale  # extra from COMPASS
   - pip:
-    - git+https://github.com/opera-adt/COMPASS
     - git+https://github.com/opera-adt/s1reader
-    - git+https://github.com/opera-adt/dolphin  # will this work?
+    - git+https://github.com/opera-adt/COMPASS
+    - git+https://github.com/opera-adt/dolphin

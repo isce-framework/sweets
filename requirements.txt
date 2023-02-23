@@ -1,11 +1,26 @@
-# TODO ADD NEW ONES
+# "dask[complete]" for pip version
+# COMPASS extra dependencies (that don't get installed through pip)
+# Conda ones
+# SYNC THIS WITH conda-env
 # These are the packages easily-installable through pip
+# gdal>=3.3
+dask>=2022.6.0
+git+https://github.com/opera-adt/compass
+git+https://github.com/opera-adt/dolphin
+git+https://github.com/opera-adt/s1-reader
 h5py>=3.6
-numba>=0.54
+h5py>=3.6.0
+lxml
 numpy>=1.20
+pandas
 pydantic>=1.10
 pymp-pypi>=0.4.5
 pyproj>=3.2
+requests>=2.10
+rich>=13.0
 ruamel_yaml>=0.15
+sardem>=0.11.1
 scipy>=1.5
-tqdm>=4.60
+sentineleof>=0.6.5
+shapely>=1.8
+yamale
