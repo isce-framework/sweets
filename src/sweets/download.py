@@ -224,6 +224,8 @@ class ASFQuery(BaseModel):
                     save_dir=self.orbit_dir,
                 ),
             )
+            t.start()
+            background_threads.append(t)
 
         # Now wait for the unzipping (if any)
         for t in background_threads:
