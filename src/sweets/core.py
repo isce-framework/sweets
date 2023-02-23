@@ -1,8 +1,9 @@
+import json
+import sys
 from datetime import date, datetime
-
-# from os import fspath
+from io import StringIO
 from pathlib import Path
-from typing import Any, Optional, Tuple
+from typing import Any, Optional, TextIO, Tuple, Union
 
 from dask.distributed import Client, Future
 from dateutil.parser import parse
@@ -11,11 +12,15 @@ from dolphin.interferogram import Network
 from dolphin.workflows import group_by_burst
 from dolphin.workflows.config import OPERA_DATASET_NAME
 from pydantic import BaseModel, Extra, Field, PrivateAttr, validator
+from ruamel.yaml import YAML
+from ruamel.yaml.comments import CommentedMap
 
 from ._burst_db import get_burst_db
+from ._config import _add_comments
 from ._geocode_slcs import create_config_files, run_geocode
 from ._interferograms import create_cor, create_ifg
 from ._log import get_log, log_runtime
+from ._types import Filename
 from .dem import DEM
 from .download import ASFQuery
 
@@ -163,10 +168,70 @@ class Workflow(BaseModel):
             )
         return v
 
-    def __init__(self, **data: Any) -> None:
+    def _to_yaml_obj(self) -> CommentedMap:
+        # Make the YAML object to add comments to
+        # We can't just do `dumps` for some reason, need a stream
+        y = YAML()
+        ss = StringIO()
+        y.dump(json.loads(self.json(by_alias=True)), ss)
+        yaml_obj = y.load(ss.getvalue())
+        return yaml_obj
+
+    def to_yaml(
+        self, output_path: Union[Filename, TextIO] = sys.stdout, with_comments=True
+    ):
+        """Save workflow configuration as a yaml file.
+
+        Used to record the default-filled version of a supplied yaml.
+
+        Parameters
+        ----------
+        output_path : Pathlike
+            Path to the yaml file to save.
+        with_comments : bool, default = False.
+            Whether to add comments containing the type/descriptions to all fields.
+        """
+        yaml_obj = self._to_yaml_obj()
+
+        if with_comments:
+            _add_comments(yaml_obj, self.schema())
+
+        y = YAML()
+        if hasattr(output_path, "write"):
+            y.dump(yaml_obj, output_path)
+        else:
+            with open(output_path, "w") as f:
+                y.dump(yaml_obj, f)
+
+    @classmethod
+    def from_yaml(cls, yaml_path: Filename):
+        """Load a workflow configuration from a yaml file.
+
+        Parameters
+        ----------
+        yaml_path : Pathlike
+            Path to the yaml file to load.
+
+        Returns
+        -------
+        Config
+            Workflow configuration
+        """
+        y = YAML(typ="safe")
+        with open(yaml_path, "r") as f:
+            data = y.load(f)
+
+        return cls(**data)
+
+    def __init__(self, start_dask=True, **data: Any) -> None:
         super().__init__(**data)
         # Start with 1 worker, scale later upon kicking off `run`
-        self._client = Client(n_workers=1, threads_per_worker=self.threads_per_worker)
+        if start_dask:
+            self._client = Client(
+                n_workers=1, threads_per_worker=self.threads_per_worker
+            )
+        else:
+            self._client = None
 
     @log_runtime
     def _download_dem(self) -> Future:
@@ -325,8 +390,10 @@ class Workflow(BaseModel):
         return unwrapped_files
 
     @log_runtime
-    def run(self):
+    def run(self, config_file: Filename = "sweets_config.yaml"):
         """Run the workflow."""
+        logger.info("Saving config to {config_file}")
+        self.to_yaml(config_file)
         # TODO: background processing maybe with prefect
         # https://examples.dask.org/applications/prefect-etl.html
         # TODO: maybe log the run times like this:
