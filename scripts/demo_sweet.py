@@ -1,3 +1,4 @@
+from rich import print
 from shapely import Point
 
 from sweets import core
@@ -21,5 +22,4 @@ if __name__ == "__main__":
         n_workers=n_workers,
         threads_per_worker=tpw,
     )
-    # downloaded_files, dem_file, burst_db_file = w.run()
-    print(w.run())
+    print(w.run())  # Print out the final output results

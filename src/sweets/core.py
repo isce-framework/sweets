@@ -298,8 +298,10 @@ class Workflow(BaseModel):
         # #########################
         unwrap_futures = []
         unwrapped_files = []
+        outdir = Path("interferograms") / "unwrapped"
         for ifg_file, cor_file in zip(stitched_ifg_files, cor_files):
-            outfile = ifg_file.with_suffix(".unw")
+            # outfile = ifg_file.with_suffix(".unw")
+            outfile = outdir / ifg_file.name.replace(".int", ".unw")
             if outfile.exists():
                 logger.info(f"{outfile} exists. Skipping.")
                 unwrapped_files.append(outfile)
@@ -308,8 +310,8 @@ class Workflow(BaseModel):
                     self._client.submit(
                         unwrap.unwrap,
                         ifg_file,
-                        cor_file,
                         outfile,
+                        cor_file,
                         do_tile=False,  # Probably make this an option too
                         init_method="mst",  # TODO: make this an option?
                         looks=self.looks,
