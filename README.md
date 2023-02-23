@@ -30,6 +30,30 @@ python -m pip install .
 
 ## Usage
 
+```python
+from sweets.core import Workflow
+
+# Pick your area of interest as a bounding box
+bbox = [-120, 34.5, -118.5, 35.5]  # random one
+# Pick your start/ending dates and track (relative orbit) number
+# dates can be strings or datetime objects
+start, end = "2020-01-01", "2020-12-31"
+# Pick which track (relative orbit) you want to process
+track = "2020-01-01", "2020-12-31", 78
+
+w = Workflow(
+    bbox=bbox,
+    start=start,
+    end=end,
+    track=track,
+    # (optional) Set the maximum temporal baseline (in days) for interferograms
+    max_temporal_baseline=180,
+)
+
+# Run the workflow
+w.run()
+```
+
 
 ## License
 

@@ -1,7 +1,7 @@
 from rich import print
 from shapely import Point
 
-from sweets import core
+from sweets.core import Workflow
 
 if __name__ == "__main__":
     # bbox = [-120, 34.5, -118.5, 35.5]  # random one
@@ -12,9 +12,10 @@ if __name__ == "__main__":
     # magnitude=5.22863731, latitude=32.19085693, longitude=-102.1406965, depth=8.1923)
     lon, lat = -102.1407, 32.1909
     bbox = Point(lon, lat).buffer(0.2).bounds
-    start, end, track, n_workers, tpw = "2022-10-15", "2023-02-20", 78, 10, 8
+    start, end, track = "2022-10-15", "2023-02-20", 78
+    n_workers, tpw = 10, 16
 
-    w = core.Workflow(
+    w = Workflow(
         bbox=bbox,
         start=start,
         end=end,
