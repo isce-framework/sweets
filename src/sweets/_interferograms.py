@@ -1,26 +1,36 @@
 import argparse
 import warnings
 from pathlib import Path
-from typing import Tuple
+from typing import Optional, Tuple
 
 import dask
 import dask.array as da
 import h5py
 import numpy as np
+import rioxarray
+from compass.utils.helpers import bbox_to_utm
 from dask.distributed import Client
 from dolphin import utils
 from dolphin.interferogram import VRTInterferogram
-from dolphin.io import DEFAULT_HDF5_OPTIONS, write_arr
-from dolphin.workflows.config import OPERA_DATASET_NAME
+from dolphin.io import DEFAULT_HDF5_OPTIONS
 
 from ._log import get_log, log_runtime
 from ._types import Filename
+from .utils import get_intersection_bounds, get_overlapping_bounds
+
+# from dolphin.io import DEFAULT_HDF5_OPTIONS, write_arr
+# from dolphin.workflows.config import OPERA_DATASET_NAME
+
 
 logger = get_log(__name__)
 
 
 def create_ifg(
-    vrt_ifg: VRTInterferogram, looks: Tuple[int, int], overwrite: bool = False
+    vrt_ifg: VRTInterferogram,
+    looks: Tuple[int, int],
+    overwrite: bool = False,
+    bbox: Optional[Tuple[float, float, float, float]] = None,
+    overlapping_with: Optional[Path] = None,
 ) -> Path:
     """Create a multi-looked, normalized interferogram from a VRTInterferogram.
 
@@ -32,15 +42,48 @@ def create_ifg(
         row looks, column looks.
     overwrite : bool, optional
         Overwrite existing interferogram, by default False.
+    bbox : Optional[Tuple[float, float, float, float]], optional
+        Bounding box to crop the interferogram to, by default None.
+        Assumes (lon_min, lat_min, lon_max, lat_max) format.
+    overlapping_with : Optional[Path], optional
+        Alternative to bbox: Path to another file to crop to the overlap.
+        If the bounding boxes overlap, the output interferogram will be cropped
+        to the intersection of the two bounding boxes
+        If None, will not check for overlapping bounding boxes, by default None.
+
 
     Returns
     -------
     Path
         Path to Geotiff file containing the multi-looked, normalized interferogram.
     """
-    ref_slc = utils._get_path_from_gdal_str(vrt_ifg.ref_slc)
-    sec_slc = utils._get_path_from_gdal_str(vrt_ifg.sec_slc)
+    # da = rioxarray.open_rasterio(fin3, chunks=(1, 128*10, 128*10)).sel(band=1)
+    # da_sub = da.sel(x=slice(bbox[0], bbox[2]), y=slice(bbox[3], bbox[1]))
+
+    dask_chunks = (1, 128 * 10, 128 * 10)
+    da_ref = rioxarray.open_rasterio(vrt_ifg.ref_slc, chunks=dask_chunks).sel(band=1)
+    da_sec = rioxarray.open_rasterio(vrt_ifg.sec_slc, chunks=dask_chunks).sel(band=1)
+    bb_utm = None
+    if bbox is not None:
+        bb_target = bbox_to_utm(bbox, epsg_src=4326, epsg_dst=da_ref.rio.crs.to_epsg())
+        bb_utm = get_overlapping_bounds(bb_target, da_ref.rio.bounds())
+    elif overlapping_with:
+        bb_utm = get_intersection_bounds(
+            overlapping_with, vrt_ifg.ref_slc, epsg_code=da_ref.rio.crs.to_epsg()
+        )
+    if bb_utm is not None:
+        # (-102.9406965, 31.3908, -102.3406965, 31.9908)
+        da_ref = da_ref.sel(
+            x=slice(bb_utm[0], bb_utm[2]), y=slice(bb_utm[3], bb_utm[1])
+        )
+        da_sec = da_sec.sel(
+            x=slice(bb_utm[0], bb_utm[2]), y=slice(bb_utm[3], bb_utm[1])
+        )
+
+    # ref_slc = utils._get_path_from_gdal_str(vrt_ifg.ref_slc)
+    # sec_slc = utils._get_path_from_gdal_str(vrt_ifg.sec_slc)
     # suffix = ".int" if to_binary else ".h5"
+
     suffix = ".tif"
     outfile = vrt_ifg.path.with_suffix(suffix)
     if outfile.exists():
@@ -51,14 +94,20 @@ def create_ifg(
             logger.info(f"Overwriting {outfile} because overwrite=True.")
             outfile.unlink()
 
-    with h5py.File(ref_slc, "r") as f, h5py.File(sec_slc, "r") as g:
-        ref_da = da.from_array(f[OPERA_DATASET_NAME])
-        sec_da = da.from_array(g[OPERA_DATASET_NAME])
-        # PerformanceWarning: Reshaping is producing a large chunk...
-        with dask.config.set(**{"array.slicing.split_large_chunks": False}):
-            _form_ifg(ref_da, sec_da, looks, outfile, ref_filename=vrt_ifg.ref_slc)
+    logger.info(f"Creating {looks[0]}x{looks[1]} multi-looked interferogram: {outfile}")
+    # with h5py.File(ref_slc, "r") as f, h5py.File(sec_slc, "r") as g:
+    #     da_ref = da.from_array(f[OPERA_DATASET_NAME])
+    #     da_sec = da.from_array(g[OPERA_DATASET_NAME])
+    # PerformanceWarning: Reshaping is producing a large chunk...
+    with dask.config.set(**{"array.slicing.split_large_chunks": False}):
+        # _form_ifg(da_ref, da_sec, looks, outfile, ref_filename=vrt_ifg.ref_slc)
+        _form_ifg(da_ref, da_sec, looks, outfile)
 
     return outfile
+
+
+def _take_looks_da(da: da.Array, row_looks: int, col_looks: int):
+    return da.coarsen(x=col_looks, y=row_looks, boundary="trim").mean()
 
 
 def _form_ifg(
@@ -66,7 +115,7 @@ def _form_ifg(
     da2: da.Array,
     looks: Tuple[int, int],
     outfile: Filename,
-    ref_filename=None,
+    # ref_filename=None,
 ):
     """Create a normalized ifg from two SLC files using dask.
 
@@ -85,15 +134,18 @@ def _form_ifg(
         Reference filename where the geo metadata comes from, by default None
 
     """
-    da1 = da.from_array(da1)
-    da2 = da.from_array(da2)
+    # da1 = da.from_array(da1)
+    # da2 = da.from_array(da2)
 
     # Phase cross multiply for numerator
-    numer = utils.take_looks(da1 * da2.conj(), *looks, func_type="mean")
+    # numer = utils.take_looks(da1 * da2.conj(), *looks, func_type="mean")
+    numer = _take_looks_da(da1 * da2.conj(), *looks)
 
     # Normalize so absolute value is correlation
-    pow1 = utils.take_looks((da1 * da1.conj()).real, *looks, func_type="mean")
-    pow2 = utils.take_looks((da2 * da2.conj()).real, *looks, func_type="mean")
+    # pow1 = utils.take_looks((da1 * da1.conj()).real, *looks, func_type="mean")
+    # pow2 = utils.take_looks((da2 * da2.conj()).real, *looks, func_type="mean")
+    pow1 = _take_looks_da(da1 * da1.conj(), *looks)
+    pow2 = _take_looks_da(da2 * da2.conj(), *looks)
     denom = np.sqrt(pow1 * pow2)
     # RuntimeWarning: invalid value encountered in divide
     # filter out warnings
@@ -103,18 +155,23 @@ def _form_ifg(
 
     # TODO: do I care to save it as ENVI? I don't think so.
     if Path(outfile).suffix == ".tif":
+        # Make sure we didn't lose the geo information
+        ifg.rio.write_crs(da1.rio.crs, inplace=True)
+        ifg.rio.write_nodata(float("NaN"), inplace=True)
+
+        ifg.rio.to_raster(outfile, tiled=True)
+
         # Since each multi-looked burst will be small, just load into memory.
-        ifg_np = ifg.compute()
-        # with open(outfile, "wb") as f:
-        # TODO: alternative is .store with a memmap
-        # https://docs.dask.org/en/stable/generated/dask.array.store.html#dask.array.store
-        write_arr(
-            arr=ifg_np,
-            output_name=outfile,
-            like_filename=ref_filename,
-            strides={"x": looks[1], "y": looks[0]},
-            nodata=np.nan,
-        )
+        # ifg_np = ifg.compute()
+        # # with open(outfile, "wb") as f:
+        # # TODO: alternative is .store with a memmap
+        # write_arr(
+        #     arr=ifg_np,
+        #     output_name=outfile,
+        #     like_filename=ref_filename,
+        #     strides={"x": looks[1], "y": looks[0]},
+        #     nodata=np.nan,
+        # )
     else:
         # TODO: saving as HDF5 will be more work to get the projection copied over
         DEFAULT_HDF5_OPTIONS["chunks"] = tuple(DEFAULT_HDF5_OPTIONS["chunks"])
@@ -144,6 +201,33 @@ def _form_ifg_name(slc1: Filename, slc2: Filename, out_dir: Filename) -> Path:
     fmt = "%Y%m%d"
     ifg_name = f"{date1.strftime(fmt)}_{date2.strftime(fmt)}.h5"
     return Path(out_dir) / ifg_name
+
+
+def create_cor(ifg_filename: Filename, outfile: Optional[Filename] = None):
+    """Write out a binary correlation file for an interferogram.
+
+    Assumes the interferogram has been normalized so that the absolute value
+    is the correlation.
+
+    Parameters
+    ----------
+    ifg_filename : Filename
+        Complex interferogram filename
+    outfile : Optional[Filename], optional
+        Output filename, by default None
+        If None, will use the same name as the interferogram but with the
+        extension changed to .cor
+
+    Returns
+    -------
+    Filename
+        Output filename
+    """
+    if outfile is None:
+        outfile = Path(ifg_filename).with_suffix(".cor")
+    da_ifg = rioxarray.open_rasterio(ifg_filename, chunks=True)
+    np.abs(da_ifg).rio.to_raster(outfile, driver="ENVI")
+    return outfile
 
 
 def _get_cli_args():
