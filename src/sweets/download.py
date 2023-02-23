@@ -95,7 +95,7 @@ class ASFQuery(BaseModel):
         description="Unzip downloaded files into .SAFE directories",
     )
     orbit_dir: Path = Field(
-        Path(".") / "orbit",
+        Path("orbits"),
         description="Directory for orbit files",
     )
     _url: str = PrivateAttr()
@@ -215,13 +215,13 @@ class ASFQuery(BaseModel):
                 )
                 t.start()
                 background_threads.append(t)
-            # Also start a thread to download the orbit
 
+            # Also start a thread to download the orbit
             t = Thread(
                 target=download_eofs,
                 kwargs=dict(
-                    sentinel_file=outfile,
-                    save_dir=self.orbit_dir,
+                    sentinel_file=os.fspath(outfile),
+                    save_dir=os.fspath(self.orbit_dir),
                 ),
             )
             t.start()

@@ -16,8 +16,6 @@ from ._burst_db import get_burst_db
 from ._geocode_slcs import create_config_files, run_geocode
 from ._interferograms import create_cor, create_ifg
 from ._log import get_log, log_runtime
-
-# from ._orbits import download_orbits
 from .dem import DEM
 from .download import ASFQuery
 
@@ -186,12 +184,6 @@ class Workflow(BaseModel):
         # TODO: probably can download a few at a time
         rslc_futures = self._client.submit(self.asf_query.download)
         return rslc_futures
-        # # Use .parent of the .result() so that next step depends on the result
-        # rslc_data_path = rslc_futures.result()[0].parent
-        # orbit_futures = self._client.submit(
-        #     download_orbits, rslc_data_path, self.orbit_dir
-        # )
-        # return rslc_futures, orbit_futures
 
     @log_runtime
     def _geocode_slcs(self, slc_files, dem_file, burst_db_file):
@@ -344,7 +336,6 @@ class Workflow(BaseModel):
 
         dem_fut = self._download_dem()
         burst_db_fut = self._download_burst_db()
-        # rslc_futures, orbit_futures = self._download_rslcs()
         rslc_futures = self._download_rslcs()
         # Gather the futures once everything is downloaded
         dem_file, burst_db_file = self._client.gather([dem_fut, burst_db_fut])
