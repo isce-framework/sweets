@@ -58,6 +58,7 @@ def create_config_files(
     orbit_dir: Filename,
     bbox: Optional[Tuple[float, ...]] = None,
     out_dir: Filename = Path("gslcs"),
+    overwrite: bool = False,
 ) -> List[Path]:
     """Create the geocoding config files for a stack of SLCs.
 
@@ -78,12 +79,25 @@ def create_config_files(
         By default None (process all bursts in zip file for all files)
     out_dir : Filename, optional
         Directory to store geocoded results, by default Path("gslcs")
+    overwrite : bool, optional
+        If true, will overwrite existing config files, by default False
 
     Returns
     -------
     List[Path]
         Paths of runconfig files to pass to s1_cslc.py
     """
+    # Check if they already exist:
+    runconfig_path = Path(out_dir) / "runconfigs"
+    if overwrite:
+        shutil.rmtree(runconfig_path, ignore_errors=True)
+
+    runconfig_path.mkdir(parents=True, exist_ok=True)
+    config_files = sorted(runconfig_path.glob("*"))
+
+    if len(config_files) > 0:
+        logger.info(f"Found {len(config_files)} geocoding config files.")
+        return config_files
     s1_geocode_stack.run(
         slc_dir=fspath(slc_dir),
         dem_file=fspath(dem_file),
@@ -142,5 +156,6 @@ def repack_and_compress(
     subprocess.run(cmd, shell=True, check=True, stdout=subprocess.DEVNULL)
     # move back to overwrite
     Path(temp_out).unlink()
+
     if overwrite:
         shutil.move(fspath(outfile), fspath(slc_file))

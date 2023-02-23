@@ -5,10 +5,8 @@ from pathlib import Path
 from typing import Any, Optional, Tuple
 
 from dask.distributed import Client
-
-# from dask import delayed
 from dateutil.parser import parse
-from dolphin import io, stitching
+from dolphin import io, stitching, unwrap
 from dolphin.interferogram import Network
 from dolphin.workflows import group_by_burst
 from dolphin.workflows.config import OPERA_DATASET_NAME
@@ -16,13 +14,16 @@ from pydantic import BaseModel, Extra, Field, PrivateAttr, validator
 
 from ._burst_db import get_burst_db
 from ._geocode_slcs import create_config_files, run_geocode
-from ._interferograms import create_ifg
+from ._interferograms import create_cor, create_ifg
 from ._log import get_log, log_runtime
 from ._orbits import download_orbits
 from .dem import DEM
 from .download import ASFQuery
 
 logger = get_log(__name__)
+
+# TODO: save AOI, pad the DEM a little beyond that
+# figure out what to do with cropping the bursts... when to do that? probably before ifgs
 
 
 class Workflow(BaseModel):
@@ -90,6 +91,10 @@ class Workflow(BaseModel):
         2,
         description="Number of threads per worker.",
     )
+    overwrite: bool = Field(
+        False,
+        description="Overwrite existing files.",
+    )
     _client: Client = PrivateAttr()
     # log_file: Path = Field(
     #     Path("sweets.log"),
@@ -112,15 +117,30 @@ class Workflow(BaseModel):
     def _use_same_bbox(cls, v, values):
         if v is not None:
             return v
+        # Expand the bbox a little bit so DEM fully covers the data
         bbox = values.get("bbox")
-        return DEM(bbox=bbox)
+        dem_bbox = (
+            bbox[0] - 0.15,
+            bbox[1] - 0.15,
+            bbox[2] + 0.15,
+            bbox[3] + 0.15,
+        )
+        return DEM(bbox=dem_bbox)
 
     @validator("asf_query", pre=True, always=True)
     def _create_query(cls, v, values):
         if v is not None:
             return v
+        # Shrink the data query bbox by a little bit
+        bbox = values.get("bbox")
+        query_bbox = (
+            bbox[0] + 0.05,
+            bbox[1] + 0.05,
+            bbox[2] - 0.05,
+            bbox[3] - 0.05,
+        )
         meta = dict(
-            bbox=values.get("bbox"),
+            bbox=query_bbox,
             start=values.get("start"),
             end=values.get("end"),
             relativeOrbit=values.get("track"),
@@ -163,7 +183,7 @@ class Workflow(BaseModel):
 
         # TODO: probably can download a few at a time
         downloaded_files = self._client.submit(self.asf_query.download)
-        # Use .parent so that next step knows it depends on the result
+        # Use .parent of the .result() so that next step depends on the result
         slc_data_path = downloaded_files.result()[0].parent
 
         # asf_download = delayed(self.asf_query.download)
@@ -189,6 +209,7 @@ class Workflow(BaseModel):
             orbit_dir=self.orbit_dir,
             bbox=self.bbox,
             out_dir=Path("gslcs"),
+            overwrite=self.overwrite,
         )
 
         # Run the geocodings
@@ -196,6 +217,9 @@ class Workflow(BaseModel):
         for cfg_file in compass_cfg_files:
             gslc_futures.append(self._client.submit(run_geocode, cfg_file))
         gslc_files = self._client.gather(gslc_futures)
+
+        # These GSLCs will all have their own bbox.
+        # Make VRTs for each burst that all have the same specified bbox.
 
         # Group the SLCs by burst:
         # {'t078_165573_iw2': [PosixPath('gslcs/t078_165573_iw2/20221029/...
@@ -218,8 +242,15 @@ class Workflow(BaseModel):
 
             ifg_futures = []
             for vrt_ifg in network.ifg_list:
-                # ifg_file = create_ifg(vrt_ifg)
-                ifg_fut = self._client.submit(create_ifg, vrt_ifg, self.looks)
+                ifg_fut = self._client.submit(
+                    create_ifg, vrt_ifg, self.looks, bbox=self.bbox
+                )
+                # ifg_fut = self._client.submit(
+                #     create_ifg,
+                #     vrt_ifg,
+                #     self.looks,
+                #     overlapping_with=dem_file,
+                # )
 
                 ifg_futures.append(ifg_fut)
 
@@ -229,28 +260,63 @@ class Workflow(BaseModel):
             # Make sure we free up the memory
             self._client.cancel(ifg_futures)
 
-        # Finally, stitch the interferograms together
+        # #####################
+        # Stitch interferograms
+        # #####################
         grouped_images = stitching._group_by_date(ifg_path_list)
 
         stitched_dir = Path("interferograms") / "stitched"
         stitched_dir.mkdir(parents=True, exist_ok=True)
-        stitched_files = []
-        futures = []
+        stitched_ifg_files = []
+        cor_files = []
+        ifg_futures = []
         for dates, cur_images in grouped_images.items():
             logger.info(f"{dates}: Stitching {len(cur_images)} images.")
             stitched_dir.mkdir(parents=True, exist_ok=True)
             outfile = stitched_dir / (io._format_date_pair(*dates) + ".int")
-            stitched_files.append(outfile)
+            stitched_ifg_files.append(outfile)
 
-            futures.append(
+            ifg_futures.append(
                 self._client.submit(
                     stitching.merge_images,
                     cur_images,
                     outfile=outfile,
                     driver="ENVI",
-                    overwrite=False,
+                    overwrite=self.overwrite,
                 )
             )
+        self._client.gather(ifg_futures)  # create ifg returns nothing
 
-        self._client.gather(futures)
-        return stitched_files
+        # Also need to write out a temp correlation file for unwrapping
+        cor_futures = []
+        for ifg_file in stitched_ifg_files:
+            cor_futures.append(self._client.submit(create_cor, ifg_file))
+        cor_files = self._client.gather(cor_futures)
+
+        # #########################
+        # Unwrap the interferograms
+        # #########################
+        unwrap_futures = []
+        unwrapped_files = []
+        for ifg_file, cor_file in zip(stitched_ifg_files, cor_files):
+            outfile = ifg_file.with_suffix(".unw")
+            if outfile.exists():
+                logger.info(f"{outfile} exists. Skipping.")
+                unwrapped_files.append(outfile)
+            else:
+                unwrap_futures.append(
+                    self._client.submit(
+                        unwrap.unwrap,
+                        ifg_file,
+                        cor_file,
+                        outfile,
+                        do_tile=False,  # Probably make this an option too
+                        init_method="mst",  # TODO: make this an option?
+                        looks=self.looks,
+                    )
+                )
+
+        # Add in the rest of the ones we ran
+        unwrapped_files.extend(self._client.gather(unwrap_futures))
+
+        return unwrapped_files

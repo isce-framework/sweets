@@ -194,9 +194,12 @@ class ASFQuery(BaseModel):
             if f not in done_files:
                 to_do_files.append(f)
                 to_do_urls.append(u)
-        logger.info(
-            f"Missing {len(to_do_files)}/{len(file_names)} files. Downloading..."
-        )
+        msg = f"Missing {len(to_do_files)}/{len(file_names)} files. "
+        if len(to_do_files) == 0:
+            msg += "All files already downloaded."
+        else:
+            msg += "Downloading..."
+        logger.info(msg)
 
         background_threads = []
         for url, outfile in zip(to_do_urls, to_do_files):
