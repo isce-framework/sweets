@@ -26,7 +26,7 @@ __all__ = ["get_log", "log_runtime"]
 
 
 def get_log(
-    name: str = "dolphin._log",
+    name: str = "sweets._log",
     debug: bool = False,
 ) -> logging.Logger:
     """Create a nice log format for use across multiple files.
@@ -39,7 +39,7 @@ def get_log(
         If true, sets logging level to DEBUG (Default value = False)
     name : str, optional
         The name the logger will use when printing statements
-        (Default value = "dolphin._log")
+        (Default value = "sweets._log")
     filename : Filename, optional
         If provided, will log to this file in addition to stderr.
 

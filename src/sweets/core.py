@@ -136,20 +136,13 @@ class Workflow(BaseModel):
     def _create_query(cls, v, values):
         if v is not None:
             return v
-        # Shrink the data query bbox by a little bit
         bbox = values.get("bbox")
         track = values.get("track")
         if track is None:
             raise ValueError("Must specify either track for asf_query")
 
-        query_bbox = (
-            bbox[0] + 0.05,
-            bbox[1] + 0.05,
-            bbox[2] - 0.05,
-            bbox[3] - 0.05,
-        )
         asf_params = dict(
-            bbox=query_bbox,
+            bbox=bbox,
             start=values.get("start"),
             end=values.get("end"),
             relativeOrbit=track,
