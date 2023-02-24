@@ -1,5 +1,5 @@
 # sweets
-Workflow for creating interferograms from Sentinel-1 geocoded SLCs.
+Workflow for creating unwrapped interferograms from Sentinel-1 geocoded SLCs.
 
 
 
@@ -26,6 +26,8 @@ conda env update --name my-existing-env --file conda-env.yml
 conda activate sweets-env
 python -m pip install .
 ```
+
+For the unwrapping portion, it is assumed you have installed [SNAPHU](https://web.stanford.edu/group/radar/softwareandlinks/sw/snaphu/) and have `snaphu` in your path.
 
 
 ## Usage
