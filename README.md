@@ -30,29 +30,37 @@ python -m pip install .
 
 ## Usage
 
+From the command line, installing will create a `sweets` executable. You can run `sweets --help` to see the available options.
+```bash
+sweets --help
+```
+You need to specify the bounding box (left, bottom, right, top) of the area of interest, the start dates (and end date, or it is assumed to be today), and the track number.
+
+```bash
+sweets --bbox -102.3407 31.9909 -101.9407 32.3909 --start "2022-10-15" --track 78
+```
+
+Or you can set all the parameters in python:
 ```python
 from sweets.core import Workflow
-
-# Pick your area of interest as a bounding box
-bbox = [-120, 34.5, -118.5, 35.5]  # random one
-# Pick your start/ending dates and track (relative orbit) number
-# dates can be strings or datetime objects
-start, end = "2020-01-01", "2020-12-31"
-# Pick which track (relative orbit) you want to process
-track = "2020-01-01", "2020-12-31", 78
-
-w = Workflow(
-    bbox=bbox,
-    start=start,
-    end=end,
-    track=track,
-    # (optional) Set the maximum temporal baseline (in days) for interferograms
-    max_temporal_baseline=180,
-)
-
-# Run the workflow
+bbox = (-102.3407 31.9909 -101.9407 32.3909)
+start = "2020-01-01"  # can be strings or datetime objects
+track = 78
+w = Workflow(bbox=bbox, start=start, start=start, track=track)
 w.run()
 ```
+
+You can also save the workflow to a config file for later use/to inspect or change parameters:
+```
+w.to_yaml()  # Saves to sweets_config.yml for inspection/tweaking
+```
+
+If you want to run this later from the config, you can do
+```python
+w = Workflow.from_yaml("sweets_config.yml")
+w.run()
+```
+
 
 
 ## License

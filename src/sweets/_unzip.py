@@ -35,22 +35,22 @@ def unzip_all(
     zip_files = list(Path(path).glob("S1[AB]_*IW*.zip"))
     logger.info(f"Found {len(zip_files)} zip files to unzip")
 
-    safe_files = list(Path(path).glob("S1[AB]_*IW*.SAFE"))
-    logger.info(f"Found {len(safe_files)} SAFE files already unzipped")
+    existing_safes = list(Path(path).glob("S1[AB]_*IW*.SAFE"))
+    logger.info(f"Found {len(existing_safes)} SAFE files already unzipped")
 
     # Skip if already unzipped
     files_to_unzip = [
-        fp for fp in zip_files if fp.stem not in [sf.stem for sf in safe_files]
+        fp for fp in zip_files if fp.stem not in [sf.stem for sf in existing_safes]
     ]
     logger.info(f"Unzipping {len(files_to_unzip)} zip files")
     # Unzip in parallel
-    outfiles = []
+    newly_unzipped = []
     with ProcessPoolExecutor(max_workers=n_workers) as executor:
         futures = [executor.submit(unzip_one, fp, pol=pol) for fp in files_to_unzip]
         for future in as_completed(futures):
-            outfiles.append(future.result())
+            newly_unzipped.append(future.result())
 
     if delete_zips:
         for fp in files_to_unzip:
             fp.unlink()
-    return outfiles
+    return newly_unzipped + existing_safes

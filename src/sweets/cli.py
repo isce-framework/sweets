@@ -58,13 +58,15 @@ def _get_cli_args():
         help="Maximum temporal baseline (in days) to consider for interferograms.",
     )
     optional.add_argument(
+        "-nw",
         "--n-workers",
         type=int,
         default=4,
         help="Number of dask workers (processes) to use for parallel processing.",
     )
     optional.add_argument(
-        "--n-threads",
+        "-tpw",
+        "--threads-per-worker",
         type=int,
         default=16,
         help=(
@@ -79,20 +81,14 @@ def main(args=None):
     args = _get_cli_args()
     # Note: importing below here so that we can set the number of threads
     # https://docs.dask.org/en/stable/array-best-practices.html#avoid-oversubscribing-threads
-    os.environ["OMP_NUM_THREADS"] = str(args.n_threads)
-    os.environ["OPENBLAS_NUM_THREADS"] = str(args.n_threads)
-    os.environ["MKL_NUM_THREADS"] = str(args.n_threads)
+    os.environ["OMP_NUM_THREADS"] = str(args.threads_per_worker)
+    # Note that setting OMP_NUM_THREADS here to 1, but passing threads_per_worker
+    # to the dask Client does not seem to work for COMPASS.
+    # It will just use 1 threads.
 
     from sweets.core import Workflow
 
-    workflow = Workflow(
-        bbox=args.bbox,
-        start=args.start,
-        end=args.end,
-        track=args.track,
-        looks=args.looks,
-        max_temporal_baseline=args.max_temporal_baseline,
-        n_workers=args.n_workers,
-        threads_per_worker=args.n_threads,
-    )
+    arg_dict = {k: v for k, v in vars(args).items() if v is not None}
+
+    workflow = Workflow(**arg_dict)
     workflow.run()
