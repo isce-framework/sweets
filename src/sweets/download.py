@@ -65,17 +65,11 @@ class ASFQuery(BaseModel):
     )
     start: datetime = Field(
         None,
-        description=(
-            "Starting time for search. Many acceptable inputs e.g. '3 months and a day"
-            " ago' 'May 30, 2018' '2010-10-30T00:00:00Z'"
-        ),
+        description="Starting datetime for search.",
     )
     end: datetime = Field(
         None,
-        description=(
-            "Ending time for search. Many acceptable inputs e.g. '3 months and a day"
-            " ago' 'May 30, 2018' '2010-10-30T00:00:00Z'"
-        ),
+        description="Ending datetime for search.",
     )
     track: Optional[int] = Field(
         None,
@@ -180,6 +174,8 @@ class ASFQuery(BaseModel):
                 f.write(u + "\n")
 
         aria_cmd = f'aria2c -i "{url_filename}" -d "{self.out_dir}" --continue=true'
+        logger.info("Downloading with aria2c")
+        logger.info(aria_cmd)
         subprocess.run(aria_cmd, shell=True)
 
     @log_runtime
@@ -192,30 +188,17 @@ class ASFQuery(BaseModel):
         self.out_dir.mkdir(parents=True, exist_ok=True)
 
         urls = self._get_urls(results)
+        if not urls:
+            raise ValueError("No results found for query")
+
         file_names = [self.out_dir / f for f in self._file_names(results)]
-
-        # Exclude already-downloaded files
-        done_files = [f for f in file_names if f.exists()]
-        to_do_files, to_do_urls = [], []
-        for f, u in zip(file_names, urls):
-            if f not in done_files:
-                to_do_files.append(f)
-                to_do_urls.append(u)
-        msg = f"Missing {len(to_do_files)}/{len(file_names)} files. "
-
-        if len(to_do_files) == 0:
-            msg += "All files already downloaded."
-        else:
-            msg += "Downloading..."
-        logger.info(msg)
-
-        if to_do_urls:
-            self._download_with_aria(to_do_urls)
+        # NOTE: aria should skip already-downloaded files
+        self._download_with_aria(urls)
 
         if self.unzip:
             # Change to .SAFE extension
             logger.info("Unzipping files...")
-            file_names = unzip_all(self.out_dir)
+            file_names = unzip_all(self.out_dir, out_dir=self.out_dir)
         return file_names
 
     @staticmethod
