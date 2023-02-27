@@ -47,7 +47,7 @@ def get_cache_dir(force_posix: bool = False) -> Path:
     return path
 
 
-def to_bbox(geojson: Optional[str] = None, wkt: Optional[str] = None) -> Tuple:
+def to_bbox(*, geojson: Optional[str] = None, wkt: Optional[str] = None) -> Tuple:
     """Convert a geojson or WKT string to a bounding box.
 
     Parameters

@@ -1,5 +1,6 @@
 import argparse
 import os
+from pathlib import Path
 
 
 def _get_cli_args():
@@ -23,9 +24,9 @@ def _get_cli_args():
     aoi.add_argument(
         "--wkt",
         help=(
-            "Alternate to bounding box specification: \n"
-            "WKT string for AOI bounds (e.g. from the ASF Vertex tool). \n"
-            "If using this option, you must enclose in quotes."
+            "Alternate to bounding box specification: \nWKT string (or file containing"
+            " polygon) for AOI bounds (e.g. from the ASF Vertex tool). \nIf passing "
+            " a string polygon, you must enclose in quotes."
         ),
     )
     aoi.add_argument(
@@ -69,9 +70,31 @@ def _get_cli_args():
         "-t",
         "--max-temporal-baseline",
         type=int,
-        default=180,
+        default=None,
         help="Maximum temporal baseline (in days) to consider for interferograms.",
     )
+    optional.add_argument(
+        "--max-bandwidth",
+        type=int,
+        default=4,
+        help="Alternative to temporal baseline: form the nearest n- ifgs.",
+    )
+    # Allow them to specify the data directory, or the orbit directory
+    optional.add_argument(
+        "--data-dir",
+        help=(
+            "Directory to store data in (or directory containing existing downloads)."
+            " If None, will store in `data/` "
+        ),
+    )
+    optional.add_argument(
+        "--orbit-dir",
+        help=(
+            "Directory to store orbit files in (or directory containing existing"
+            " orbits). If None, will store in `orbits/` "
+        ),
+    )
+
     optional.add_argument(
         "-nw",
         "--n-workers",
@@ -107,11 +130,14 @@ def main(args=None):
     if args.bbox is None:
         if args.geojson is not None:
             with open(args.geojson.name, "r") as f:
-                args.bbox = to_bbox(f.read())
+                args.bbox = to_bbox(geojson=f.read())
             args.geojson = None
         elif args.wkt is not None:
-            args.bbox = to_bbox(args.wkt)
-            args.wkt = None
+            if Path(args.wkt).exists():
+                with open(args.wkt, "r") as f:
+                    args.bbox = to_bbox(wkt=f.read())
+            else:
+                args.bbox = to_bbox(wkt=args.wkt)
         else:
             raise ValueError(
                 "Must specify one of --bbox, --wkt, or --geojson for AOI bounds."
