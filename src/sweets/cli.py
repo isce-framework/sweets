@@ -1,5 +1,6 @@
 import argparse
 import os
+from pathlib import Path
 
 
 def _get_cli_args():
@@ -8,32 +9,47 @@ def _get_cli_args():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser._action_groups.pop()
-    required = parser.add_argument_group("required arguments")
-    optional = parser.add_argument_group("optional arguments")
-    required.add_argument(
+    aoi = parser.add_argument_group("Required args: specify area of interest")
+    aoi.add_argument(
         "-b",
         "--bbox",
         nargs=4,
         metavar=("left", "bottom", "right", "top"),
         type=float,
         help=(
-            "Bounding box of area of interest "
-            " (e.g. --bbox -106.1 30.1 -103.1 33.1 ). \n"
-            "--bbox points to the *edges* of the pixels, \n"
-            " following the 'pixel is area' convention as used in gdal. "
+            "Bounding box of area of interest in decimal degrees longitude/latitude: \n"
+            "  (e.g. --bbox -106.1 30.1 -103.1 33.1 ). \n"
         ),
     )
-    required.add_argument(
+    aoi.add_argument(
+        "--wkt",
+        help=(
+            "Alternate to bounding box specification: \nWKT string (or file containing"
+            " polygon) for AOI bounds (e.g. from the ASF Vertex tool). \nIf passing "
+            " a string polygon, you must enclose in quotes."
+        ),
+    )
+    aoi.add_argument(
+        "--geojson",
+        type=argparse.FileType(),
+        help=(
+            "Alternate to bounding box specification: \n"
+            "File containing the geojson object for DEM bounds"
+        ),
+    )
+    aoi.add_argument(
         "--start",
         help="Starting date for query (recommended: YYYY-MM-DD)",
+        required=True,
     )
-    required.add_argument(
+    aoi.add_argument(
         "--track",
         type=int,
         required=True,
         help="Limit to one path / relativeOrbit",
     )
 
+    optional = parser.add_argument_group("optional arguments")
     optional.add_argument(
         "--end",
         help="Ending date for query (recommended: YYYY-MM-DD). Defaults to today.",
@@ -54,9 +70,31 @@ def _get_cli_args():
         "-t",
         "--max-temporal-baseline",
         type=int,
-        default=180,
+        default=None,
         help="Maximum temporal baseline (in days) to consider for interferograms.",
     )
+    optional.add_argument(
+        "--max-bandwidth",
+        type=int,
+        default=4,
+        help="Alternative to temporal baseline: form the nearest n- ifgs.",
+    )
+    # Allow them to specify the data directory, or the orbit directory
+    optional.add_argument(
+        "--data-dir",
+        help=(
+            "Directory to store data in (or directory containing existing downloads)."
+            " If None, will store in `data/` "
+        ),
+    )
+    optional.add_argument(
+        "--orbit-dir",
+        help=(
+            "Directory to store orbit files in (or directory containing existing"
+            " orbits). If None, will store in `orbits/` "
+        ),
+    )
+
     optional.add_argument(
         "-nw",
         "--n-workers",
@@ -87,6 +125,23 @@ def main(args=None):
     # It will just use 1 threads.
 
     from sweets.core import Workflow
+    from sweets.utils import to_bbox
+
+    if args.bbox is None:
+        if args.geojson is not None:
+            with open(args.geojson.name, "r") as f:
+                args.bbox = to_bbox(geojson=f.read())
+            args.geojson = None
+        elif args.wkt is not None:
+            if Path(args.wkt).exists():
+                with open(args.wkt, "r") as f:
+                    args.bbox = to_bbox(wkt=f.read())
+            else:
+                args.bbox = to_bbox(wkt=args.wkt)
+        else:
+            raise ValueError(
+                "Must specify one of --bbox, --wkt, or --geojson for AOI bounds."
+            )
 
     arg_dict = {k: v for k, v in vars(args).items() if v is not None}
 

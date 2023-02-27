@@ -5,7 +5,7 @@ from typing import Optional, Tuple
 
 import rasterio as rio
 from rasterio.vrt import WarpedVRT
-from shapely import geometry
+from shapely import from_geojson, from_wkt, geometry
 
 from ._types import Filename
 
@@ -45,6 +45,35 @@ def get_cache_dir(force_posix: bool = False) -> Path:
     path = path.expanduser()
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def to_bbox(*, geojson: Optional[str] = None, wkt: Optional[str] = None) -> Tuple:
+    """Convert a geojson or WKT string to a bounding box.
+
+    Parameters
+    ----------
+    geojson : Optional[str]
+        A geojson string.
+    wkt : Optional[str]
+        A WKT string.
+
+    Returns
+    -------
+    Tuple
+        A tuple of (left, bottom, right, top) bounds.
+
+    Raises
+    ------
+    ValueError
+        If neither geojson nor wkt are provided.
+    """
+    if geojson is not None:
+        geom = from_geojson(geojson)
+    elif wkt is not None:
+        geom = from_wkt(wkt)
+    else:
+        raise ValueError("Must provide either geojson or wkt")
+    return tuple(geom.bounds)
 
 
 def get_transformed_bounds(filename: Filename, epsg_code: Optional[int] = None):

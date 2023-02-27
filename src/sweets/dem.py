@@ -12,7 +12,7 @@ logger = get_log(__name__)
 
 
 class DEM(BaseModel):
-    """Class for downloading DEM data from ASF."""
+    """Class for downloading and creating a DEM."""
 
     output_name: Path = Field(
         Path("dem.tif"),

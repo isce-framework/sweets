@@ -32,8 +32,8 @@ def run_geocode(run_config_path: Filename, compress: bool = True) -> Path:
 
     Returns
     -------
-    List[Path]
-        Paths of geocoded HDF5 files.
+    Path
+        Path of geocoded HDF5 file.
     """
     # Need to load the config to get the output paths
     cfg = GeoRunConfig.load_from_yaml(run_config_path, "s1_cslc_geo")
@@ -46,9 +46,60 @@ def run_geocode(run_config_path: Filename, compress: bool = True) -> Path:
             logger.info(f"Compressing {outfile}...")
             repack_and_compress(outfile)
     else:
-        logger.info(f"Skipping geocoding for {run_config_path}, {outfile} exists.")
+        logger.info(
+            f"Skipping geocoding for {run_config_path}, {outfile} already exists."
+        )
 
     return outfile
+
+
+def repack_and_compress(
+    slc_file: Filename,
+    gzip: int = 4,
+    chunks: Sequence[int] = (128, 128),
+    outfile: Optional[Filename] = None,
+    overwrite: bool = True,
+):
+    """Chunk output product and compress it."""
+    temp_out = str(slc_file).replace(".h5", "_zeroed.h5")
+    outfile = outfile or str(slc_file).replace(".h5", "_repacked.h5")
+
+    def zero_mantissa(data, bits_to_keep=10):
+        float32_mantissa_bits = 23
+        nzero = float32_mantissa_bits - bits_to_keep
+        # Make all ones
+        allbits = (1 << 32) - 1
+
+        bitmask = (allbits << nzero) & allbits
+        dr = data.real.view(np.uint32)
+        dr &= bitmask
+        di = data.imag.view(np.uint32)
+        di &= bitmask
+        return data
+
+    logger.debug(f"Copying {slc_file} to {temp_out}, zeroing mantissa")
+    shutil.copy(slc_file, temp_out)
+    with h5py.File(temp_out, "r+") as hf:
+        dset_name = "science/SENTINEL1/CSLC/grids/VV"
+        dset = hf[dset_name]
+        data = dset[:]
+
+        data = zero_mantissa(data)
+        dset[:] = data
+
+    cmd = (
+        f"h5repack -f {dset_name}:SHUF -l {dset_name}:CHUNK={chunks[0]}x{chunks[1]} -f"
+        f" {dset_name}:GZIP={gzip} {temp_out} {outfile}"
+    )
+    logger.debug(cmd)
+
+    # h5repack is very chatty with it's logging
+    subprocess.run(cmd, shell=True, check=True, stdout=subprocess.DEVNULL)
+    # move back to overwrite
+    Path(temp_out).unlink()
+
+    if overwrite:
+        shutil.move(fspath(outfile), fspath(slc_file))
 
 
 def create_config_files(
@@ -110,52 +161,3 @@ def create_config_files(
         y_spac=Y_SPAC,
     )
     return sorted((Path(out_dir) / "runconfigs").glob("*"))
-
-
-def repack_and_compress(
-    slc_file: Filename,
-    gzip: int = 4,
-    chunks: Sequence[int] = (128, 128),
-    outfile: Optional[Filename] = None,
-    overwrite: bool = True,
-):
-    """Chunk output product and compress it."""
-    temp_out = str(slc_file).replace(".h5", "_zeroed.h5")
-    outfile = outfile or str(slc_file).replace(".h5", "_repacked.h5")
-
-    def zero_mantissa(data, bits_to_keep=10):
-        float32_mantissa_bits = 23
-        nzero = float32_mantissa_bits - bits_to_keep
-        # Make all ones
-        allbits = (1 << 32) - 1
-
-        bitmask = (allbits << nzero) & allbits
-        dr = data.real.view(np.uint32)
-        dr &= bitmask
-        di = data.imag.view(np.uint32)
-        di &= bitmask
-        return data
-
-    logger.debug(f"Copying {slc_file} to {temp_out}, zeroing mantissa")
-    shutil.copy(slc_file, temp_out)
-    with h5py.File(temp_out, "r+") as hf:
-        dset_name = "science/SENTINEL1/CSLC/grids/VV"
-        dset = hf[dset_name]
-        data = dset[:]
-
-        data = zero_mantissa(data)
-        dset[:] = data
-
-    cmd = (
-        f"h5repack -f {dset_name}:SHUF -l {dset_name}:CHUNK={chunks[0]}x{chunks[1]} -f"
-        f" {dset_name}:GZIP={gzip} {temp_out} {outfile}"
-    )
-    logger.debug(cmd)
-
-    # h5repack is very chatty with it's logging
-    subprocess.run(cmd, shell=True, check=True, stdout=subprocess.DEVNULL)
-    # move back to overwrite
-    Path(temp_out).unlink()
-
-    if overwrite:
-        shutil.move(fspath(outfile), fspath(slc_file))

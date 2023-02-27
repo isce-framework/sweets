@@ -1,5 +1,5 @@
 import zipfile
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import List
 
@@ -9,7 +9,9 @@ from sweets._types import Filename
 logger = get_log(__name__)
 
 
-def unzip_one(filepath: Filename, pol: str = "vv", out_dir=Path(".")) -> Path:
+def unzip_one(
+    filepath: Filename, pol: str = "vv", out_dir: Filename = Path(".")
+) -> Path:
     """Unzip one Sentinel-1 zip file."""
     if pol is None:
         pol = ""
@@ -29,7 +31,11 @@ def unzip_one(filepath: Filename, pol: str = "vv", out_dir=Path(".")) -> Path:
 
 
 def unzip_all(
-    path: Filename = ".", pol: str = "vv", delete_zips: bool = False, n_workers: int = 4
+    path: Filename = ".",
+    pol: str = "vv",
+    out_dir: Filename = Path("."),
+    delete_zips: bool = False,
+    n_workers: int = 4,
 ) -> List[Path]:
     """Find all .zips and unzip them, skipping overwrites."""
     zip_files = list(Path(path).glob("S1[AB]_*IW*.zip"))
@@ -45,8 +51,11 @@ def unzip_all(
     logger.info(f"Unzipping {len(files_to_unzip)} zip files")
     # Unzip in parallel
     newly_unzipped = []
-    with ProcessPoolExecutor(max_workers=n_workers) as executor:
-        futures = [executor.submit(unzip_one, fp, pol=pol) for fp in files_to_unzip]
+    with ThreadPoolExecutor(max_workers=n_workers) as executor:
+        futures = [
+            executor.submit(unzip_one, fp, pol=pol, out_dir=out_dir)
+            for fp in files_to_unzip
+        ]
         for future in as_completed(futures):
             newly_unzipped.append(future.result())
 

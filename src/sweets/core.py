@@ -11,7 +11,7 @@ from dolphin import io, stitching, unwrap
 from dolphin.interferogram import Network
 from dolphin.workflows import group_by_burst
 from dolphin.workflows.config import OPERA_DATASET_NAME
-from pydantic import BaseModel, Extra, Field, PrivateAttr, validator
+from pydantic import BaseModel, Extra, Field, PrivateAttr, root_validator, validator
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
 
@@ -33,6 +33,11 @@ logger = get_log(__name__)
 
 class Workflow(BaseModel):
     """Class for end-to-end processing of Sentinel-1 data."""
+
+    work_dir: Path = Field(
+        default_factory=Path.cwd,
+        description="Root of working directory for processing.",
+    )
 
     # Steps
     bbox: Tuple[float, ...] = Field(
@@ -60,6 +65,15 @@ class Workflow(BaseModel):
         None,
         description="Path number",
     )
+    data_dir: Path = Field(
+        Path("data"),
+        description="Directory to store data downloaded from ASF.",
+    )
+    orbit_dir: Path = Field(
+        Path("orbits"),
+        description="Directory for orbit files.",
+    )
+
     dem: DEM = Field(
         None,
         description="DEM parameters.",
@@ -67,10 +81,6 @@ class Workflow(BaseModel):
     asf_query: ASFQuery = Field(
         None,
         description="ASF query parameters.",
-    )
-    orbit_dir: Path = Field(
-        Path("orbits"),
-        description="Directory for orbit files.",
     )
 
     # Interferogram network
@@ -100,11 +110,9 @@ class Workflow(BaseModel):
         False,
         description="Overwrite existing files.",
     )
+
+    # Internal attributes
     _client: Client = PrivateAttr()
-    # log_file: Path = Field(
-    #     Path("sweets.log"),
-    #     description="Path to log file.",
-    # )
 
     class Config:
         extra = Extra.allow  # Let us set arbitrary attributes later
@@ -119,7 +127,7 @@ class Workflow(BaseModel):
         return parse(v)
 
     @validator("dem", pre=True, always=True)
-    def _use_same_bbox(cls, v, values, config, field):
+    def _use_same_bbox(cls, v, values):
         if v is not None:
             return v
         # Expand the bbox a little bit so DEM fully covers the data
@@ -139,7 +147,7 @@ class Workflow(BaseModel):
         bbox = values.get("bbox")
         track = values.get("track")
         if track is None:
-            raise ValueError("Must specify either track for asf_query")
+            raise ValueError("Must specify either `track`, or full `asf_query`")
 
         asf_params = dict(
             bbox=bbox,
@@ -166,6 +174,27 @@ class Workflow(BaseModel):
             )
         return v
 
+    # Note: this root_validator's `values` only contains the fields that have
+    # been set.
+    @root_validator(pre=True)
+    def _check_unset_dirs(cls, values):
+        # Orbits dir and data dir can be outside the working dir if someone
+        # wants to point to existing data.
+        # So we only want to move them inside the working dir if they weren't
+        # explicitly set.
+        values["_orbit_dir_is_set"] = "orbit_dir" in values
+        values["_data_dir_is_set"] = "data_dir" in values
+        return values
+
+    @root_validator()
+    def _move_inside_workdir(cls, values):
+        if not values["_orbit_dir_is_set"]:
+            values["orbit_dir"] = (values["work_dir"] / values["orbit_dir"]).resolve()
+        if not values["_data_dir_is_set"]:
+            values["data_dir"] = (values["work_dir"] / values["data_dir"]).resolve()
+        return values
+
+    # Extra serializing methods
     def _to_yaml_obj(self) -> CommentedMap:
         # Make the YAML object to add comments to
         # We can't just do `dumps` for some reason, need a stream
@@ -221,6 +250,11 @@ class Workflow(BaseModel):
 
         return cls(**data)
 
+    def save(self, config_file: Filename = "sweets_config.yaml"):
+        """Save the workflow configuration."""
+        logger.info(f"Saving config to {config_file}")
+        self.to_yaml(config_file)
+
     def __init__(self, start_dask=True, **data: Any) -> None:
         super().__init__(**data)
         # Start with 1 worker, scale later upon kicking off `run`
@@ -230,6 +264,11 @@ class Workflow(BaseModel):
             )
         else:
             self._client = None
+        # Track the directories that need to be created at start of workflow
+        self.gslc_dir = self.work_dir / "gslcs"
+        self.ifg_dir = self.work_dir / "interferograms"
+        self.stitched_ifg_dir = self.ifg_dir / "stitched"
+        self.unw_dir = self.ifg_dir / "unwrapped"
 
     @log_runtime
     def _download_dem(self) -> Future:
@@ -258,7 +297,7 @@ class Workflow(BaseModel):
             dem_file=dem_file,
             orbit_dir=self.orbit_dir,
             bbox=self.bbox,
-            out_dir=Path("gslcs"),
+            out_dir=self.gslc_dir,
             overwrite=self.overwrite,
         )
 
@@ -272,7 +311,7 @@ class Workflow(BaseModel):
         # Check which ones we have without submitting a future
         gslc_futures = []
         gslc_files = []
-        existing_paths = Path("gslcs").glob("**/*.h5")
+        existing_paths = self.gslc_dir.glob("**/*.h5")
         name_to_paths = {p.name: p for p in existing_paths}
         logger.info(f"Found {len(name_to_paths)} existing GSLC files")
         for cfg_file in compass_cfg_files:
@@ -292,7 +331,7 @@ class Workflow(BaseModel):
         burst_to_gslc = group_by_burst(gslc_files)
         ifg_path_list = []
         for burst, gslc_files in burst_to_gslc.items():
-            outdir = Path("interferograms") / burst
+            outdir = self.ifg_dir / burst
             outdir.mkdir(parents=True, exist_ok=True)
             network = Network(
                 gslc_files,
@@ -321,19 +360,16 @@ class Workflow(BaseModel):
 
         return ifg_path_list
 
+    @log_runtime
     def _stitch_interferograms(self, ifg_path_list):
+        self.stitched_ifg_dir.mkdir(parents=True, exist_ok=True)
         grouped_images = stitching._group_by_date(ifg_path_list)
-
-        # TODO: Should prob make sure these dirs are in some good place
-        stitched_dir = Path("interferograms") / "stitched"
-        stitched_dir.mkdir(parents=True, exist_ok=True)
         stitched_ifg_files = []
         cor_files = []
         ifg_futures = []
         for dates, cur_images in grouped_images.items():
             logger.info(f"{dates}: Stitching {len(cur_images)} images.")
-            stitched_dir.mkdir(parents=True, exist_ok=True)
-            outfile = stitched_dir / (io._format_date_pair(*dates) + ".int")
+            outfile = self.stitched_ifg_dir / (io._format_date_pair(*dates) + ".int")
             stitched_ifg_files.append(outfile)
 
             ifg_futures.append(
@@ -355,16 +391,15 @@ class Workflow(BaseModel):
         return stitched_ifg_files, cor_files
 
     def _unwrap_ifgs(self, ifg_files, cor_files):
+        self.unw_dir.mkdir(parents=True, exist_ok=True)
         unwrap_futures = []
         unwrapped_files = []
-        outdir = Path("interferograms") / "unwrapped"
-        outdir.mkdir(parents=True, exist_ok=True)
         for ifg_file, cor_file in zip(ifg_files, cor_files):
             # outfile = ifg_file.with_suffix(".unw")
-            outfile = outdir / ifg_file.name.replace(".int", ".unw")
+            outfile = self.unw_dir / ifg_file.name.replace(".int", ".unw")
             unwrapped_files.append(outfile)
             if outfile.exists():
-                logger.info(f"{outfile} exists. Skipping.")
+                logger.info(f"Skipping {outfile}, already exists.")
             else:
                 logger.info(f"Unwrapping {ifg_file} to {outfile}")
                 unwrap_futures.append(
@@ -387,10 +422,8 @@ class Workflow(BaseModel):
         return unwrapped_files
 
     @log_runtime
-    def run(self, config_file: Filename = "sweets_config.yaml"):
+    def run(self):
         """Run the workflow."""
-        logger.info("Saving config to {config_file}")
-        self.to_yaml(config_file)
         # TODO: background processing maybe with prefect
         # https://examples.dask.org/applications/prefect-etl.html
         # TODO: maybe log the run times like this:
