@@ -27,9 +27,6 @@ from .download import ASFQuery
 
 logger = get_log(__name__)
 
-# TODO: save AOI, pad the DEM a little beyond that
-# figure out what to do with cropping the bursts... when to do that? probably before ifgs
-
 
 class Workflow(BaseModel):
     """Class for end-to-end processing of Sentinel-1 data."""
@@ -99,11 +96,11 @@ class Workflow(BaseModel):
     )
 
     n_workers: int = Field(
-        4,
+        1,
         description="Number of workers to use for processing.",
     )
     threads_per_worker: int = Field(
-        2,
+        8,
         description="Number of threads per worker.",
     )
     overwrite: bool = Field(
@@ -113,6 +110,8 @@ class Workflow(BaseModel):
 
     # Internal attributes
     _client: Client = PrivateAttr()
+    # Extra logging from places that don't have access to the logger
+    _log_dir: Path = PrivateAttr()
 
     class Config:
         extra = Extra.allow  # Let us set arbitrary attributes later
@@ -264,7 +263,9 @@ class Workflow(BaseModel):
             )
         else:
             self._client = None
+
         # Track the directories that need to be created at start of workflow
+        self._log_dir = self.work_dir / "logs"
         self.gslc_dir = self.work_dir / "gslcs"
         self.ifg_dir = self.work_dir / "interferograms"
         self.stitched_ifg_dir = self.ifg_dir / "stitched"
@@ -284,13 +285,17 @@ class Workflow(BaseModel):
     def _download_rslcs(self) -> Tuple[Future, Future]:
         """Download Sentinel zip files from ASF."""
         # TODO: probably can download a few at a time
-        rslc_futures = self._client.submit(self.asf_query.download)
+        self._log_dir.mkdir(parents=True, exist_ok=True)
+        rslc_futures = self._client.submit(
+            self.asf_query.download, log_dir=self._log_dir
+        )
         return rslc_futures
 
     @log_runtime
     def _geocode_slcs(self, slc_files, dem_file, burst_db_file):
         # TODO: unzip, probably in download
         # any reason to do this async?
+        self._log_dir.mkdir(parents=True, exist_ok=True)
         compass_cfg_files = create_config_files(
             slc_dir=slc_files[0].parent,
             burst_db_file=burst_db_file,
@@ -299,6 +304,7 @@ class Workflow(BaseModel):
             bbox=self.bbox,
             out_dir=self.gslc_dir,
             overwrite=self.overwrite,
+            using_zipped=not self.asf_query.unzip,
         )
 
         def cfg_to_filename(cfg_path: Path) -> str:
@@ -320,7 +326,9 @@ class Workflow(BaseModel):
                 gslc_files.append(name_to_paths[name])
             else:
                 # Run the geocoding if we dont have it already
-                gslc_futures.append(self._client.submit(run_geocode, cfg_file))
+                gslc_futures.append(
+                    self._client.submit(run_geocode, cfg_file, log_dir=self._log_dir)
+                )
         gslc_files.extend(self._client.gather(gslc_futures))
         return gslc_files
 

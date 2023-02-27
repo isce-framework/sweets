@@ -167,19 +167,21 @@ class ASFQuery(BaseModel):
     def _file_names(results: dict) -> List[str]:
         return [r["properties"]["fileName"] for r in results["features"]]
 
-    def _download_with_aria(self, urls):
+    def _download_with_aria(self, urls, log_dir: Filename = Path(".")):
         url_filename = self.out_dir / "urls.txt"
         with open(self.out_dir / url_filename, "w") as f:
             for u in urls:
                 f.write(u + "\n")
 
+        log_filename = Path(log_dir) / "aria2c.log"
         aria_cmd = f'aria2c -i "{url_filename}" -d "{self.out_dir}" --continue=true'
         logger.info("Downloading with aria2c")
         logger.info(aria_cmd)
-        subprocess.run(aria_cmd, shell=True)
+        with open(log_filename, "w") as f:
+            subprocess.run(aria_cmd, shell=True, stdout=f, stderr=f, text=True)
 
     @log_runtime
-    def download(self) -> List[Path]:
+    def download(self, log_dir: Filename = Path(".")) -> List[Path]:
         # Start by saving data available as geojson
         results = self.query_results()
 
@@ -193,7 +195,7 @@ class ASFQuery(BaseModel):
 
         file_names = [self.out_dir / f for f in self._file_names(results)]
         # NOTE: aria should skip already-downloaded files
-        self._download_with_aria(urls)
+        self._download_with_aria(urls, log_dir=log_dir)
 
         if self.unzip:
             # Change to .SAFE extension

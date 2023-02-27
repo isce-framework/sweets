@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
 
 import h5py
+import journal
 import numpy as np
 from compass import s1_geocode_slc, s1_geocode_stack
 from compass.utils.geo_runconfig import GeoRunConfig
@@ -20,7 +21,9 @@ Y_SPAC = 10
 POL = "co-pol"
 
 
-def run_geocode(run_config_path: Filename, compress: bool = True) -> Path:
+def run_geocode(
+    run_config_path: Filename, compress: bool = True, log_dir: Filename = Path(".")
+) -> Path:
     """Run a single geocoding workflow on an SLC.
 
     Parameters
@@ -29,18 +32,30 @@ def run_geocode(run_config_path: Filename, compress: bool = True) -> Path:
         Path to the run config file.
     compress : bool
         If true, will compress the output HDF5 file.
+    log_dir : Filename
+        Directory to store the log files.
+        Log file is named `s1_geocode_slc_{burst_id}_{date}.log` within log_dir.
 
     Returns
     -------
     Path
         Path of geocoded HDF5 file.
     """
-    # Need to load the config to get the output paths
     cfg = GeoRunConfig.load_from_yaml(run_config_path, "s1_cslc_geo")
+
+    burst_id_tup, params = list(cfg.output_paths.items())[0]
+    # Need to load the config to get the output paths
     # Check if it's already been run
-    outfile = Path(list(cfg.output_paths.values())[0].hdf5_path)
+    outfile = Path(params.hdf5_path)
     if not outfile.exists():
         logger.info(f"Running geocoding for {run_config_path}")
+
+        # Redirect all isce and compass logs to the same file
+        burst_id_date = "_".join(burst_id_tup)
+        logfile = Path(log_dir) / f"s1_geocode_slc_{burst_id_date}.log"
+        journal.info("s1_geocode_slc").device = journal.logfile(logfile, "w")
+        journal.info("isce").device = journal.logfile(logfile, "w")
+
         s1_geocode_slc.run(cfg)
         if compress:
             logger.info(f"Compressing {outfile}...")
@@ -110,6 +125,7 @@ def create_config_files(
     bbox: Optional[Tuple[float, ...]] = None,
     out_dir: Filename = Path("gslcs"),
     overwrite: bool = False,
+    using_zipped: bool = False,
 ) -> List[Path]:
     """Create the geocoding config files for a stack of SLCs.
 
@@ -132,6 +148,9 @@ def create_config_files(
         Directory to store geocoded results, by default Path("gslcs")
     overwrite : bool, optional
         If true, will overwrite existing config files, by default False
+    using_zipped : bool, optional
+        If true, will search for. zip files instead of unzipped .SAFE directories.
+        By default False.
 
     Returns
     -------
@@ -159,5 +178,6 @@ def create_config_files(
         pol=POL,
         x_spac=X_SPAC,
         y_spac=Y_SPAC,
+        using_zipped=using_zipped,
     )
     return sorted((Path(out_dir) / "runconfigs").glob("*"))

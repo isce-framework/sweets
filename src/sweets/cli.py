@@ -1,5 +1,6 @@
 import argparse
 import os
+from datetime import datetime
 from pathlib import Path
 
 
@@ -146,4 +147,5 @@ def main(args=None):
     arg_dict = {k: v for k, v in vars(args).items() if v is not None}
 
     workflow = Workflow(**arg_dict)
+    workflow.save(f"sweets_config_{datetime.now().strftime('%Y%m%d_%H%M%S')}.yaml")
     workflow.run()
