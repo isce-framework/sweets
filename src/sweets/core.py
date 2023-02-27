@@ -269,16 +269,6 @@ class Workflow(BaseModel):
         self.ifg_dir = self.work_dir / "interferograms"
         self.stitched_ifg_dir = self.ifg_dir / "stitched"
         self.unw_dir = self.ifg_dir / "unwrapped"
-        # self._directory_list = [
-        #     self.outputs.scratch_directory,
-        #     self.outputs.output_directory,
-        #     self.ps_options.directory,
-        #     self.phase_linking.directory,
-        #     self.interferogram_network.directory,
-        #     self.unwrap_options.directory,
-        # ]
-        self.stitched_ifg_dir.mkdir(parents=True, exist_ok=True)
-        self.unw_dir.mkdir(parents=True, exist_ok=True)
 
     @log_runtime
     def _download_dem(self) -> Future:
@@ -372,8 +362,8 @@ class Workflow(BaseModel):
 
     @log_runtime
     def _stitch_interferograms(self, ifg_path_list):
+        self.stitched_ifg_dir.mkdir(parents=True, exist_ok=True)
         grouped_images = stitching._group_by_date(ifg_path_list)
-
         stitched_ifg_files = []
         cor_files = []
         ifg_futures = []
@@ -401,6 +391,7 @@ class Workflow(BaseModel):
         return stitched_ifg_files, cor_files
 
     def _unwrap_ifgs(self, ifg_files, cor_files):
+        self.unw_dir.mkdir(parents=True, exist_ok=True)
         unwrap_futures = []
         unwrapped_files = []
         for ifg_file, cor_file in zip(ifg_files, cor_files):
