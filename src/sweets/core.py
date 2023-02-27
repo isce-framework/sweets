@@ -370,6 +370,7 @@ class Workflow(BaseModel):
 
         return ifg_path_list
 
+    @log_runtime
     def _stitch_interferograms(self, ifg_path_list):
         grouped_images = stitching._group_by_date(ifg_path_list)
 
@@ -407,7 +408,7 @@ class Workflow(BaseModel):
             outfile = self.unw_dir / ifg_file.name.replace(".int", ".unw")
             unwrapped_files.append(outfile)
             if outfile.exists():
-                logger.info(f"{outfile} exists. Skipping.")
+                logger.info(f"Skipping {outfile}, already exists.")
             else:
                 logger.info(f"Unwrapping {ifg_file} to {outfile}")
                 unwrap_futures.append(
