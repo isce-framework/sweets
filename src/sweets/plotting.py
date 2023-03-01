@@ -75,9 +75,12 @@ def plot_ifg(
     ax : matplotlib.axes.Axes
         Axes of the plot containing the interferogram.
     """
-    # check for accidentally passing a filename as positional
-    if img is None or isinstance(img, (Path, str)):
-        img = io.load_gdal(filename)
+    if img is None:
+        # check for accidentally passing a filename as positional
+        if isinstance(img, (Path, str)):
+            img = io.load_gdal(img)
+        else:
+            img = io.load_gdal(filename)
     phase = np.angle(img) if np.iscomplexobj(img) else img
     if plot_cor:
         cor = np.abs(img)
