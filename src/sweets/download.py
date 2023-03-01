@@ -184,16 +184,16 @@ class ASFQuery(BaseModel):
     def download(self, log_dir: Filename = Path(".")) -> List[Path]:
         # Start by saving data available as geojson
         results = self.query_results()
+        urls = self._get_urls(results)
+
+        if not urls:
+            raise ValueError("No results found for query")
 
         # Make the output directory
         logger.info(f"Saving to {self.out_dir}")
         self.out_dir.mkdir(parents=True, exist_ok=True)
-
-        urls = self._get_urls(results)
-        if not urls:
-            raise ValueError("No results found for query")
-
         file_names = [self.out_dir / f for f in self._file_names(results)]
+
         # NOTE: aria should skip already-downloaded files
         self._download_with_aria(urls, log_dir=log_dir)
 

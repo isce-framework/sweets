@@ -1,4 +1,5 @@
 import json
+import os
 import sys
 from datetime import date, datetime
 from io import StringIO
@@ -101,7 +102,11 @@ class Workflow(BaseModel):
     )
     threads_per_worker: int = Field(
         8,
-        description="Number of threads per worker.",
+        description=(
+            "Number of threads per worker, set using OMP_NUM_THREADS. This affects the"
+            " number of threads used by isce3 geocodeSlc, as well as the number of"
+            " threads numpy uses."
+        ),
     )
     overwrite: bool = Field(
         False,
@@ -259,7 +264,11 @@ class Workflow(BaseModel):
         # Start with 1 worker, scale later upon kicking off `run`
         if start_dask:
             self._client = Client(
-                n_workers=1, threads_per_worker=self.threads_per_worker
+                n_workers=1,
+                # Note: we're setting this to 1 because Dask doesn't know how many
+                # threads we're going to use in the workers, so it will kick off
+                # n_workers * threads_per_worker jobs at once, which is too many.
+                threads_per_worker=1,
             )
         else:
             self._client = None
@@ -327,7 +336,11 @@ class Workflow(BaseModel):
             else:
                 # Run the geocoding if we dont have it already
                 gslc_futures.append(
-                    self._client.submit(run_geocode, cfg_file, log_dir=self._log_dir)
+                    self._client.submit(
+                        run_geocode,
+                        cfg_file,
+                        log_dir=self._log_dir,
+                    )
                 )
         gslc_files.extend(self._client.gather(gslc_futures))
         return gslc_files
@@ -429,15 +442,19 @@ class Workflow(BaseModel):
         # TODO: Maybe check the return codes here? or log the snaphu output?
         return unwrapped_files
 
+    def _setup_workers(self):
+        # https://docs.dask.org/en/stable/array-best-practices.html#avoid-oversubscribing-threads
+        # Note that setting OMP_NUM_THREADS here to 1, but passing threads_per_worker
+        # to the dask Client does not seem to work for COMPASS.
+        # It will just use 1 threads.
+        os.environ["OMP_NUM_THREADS"] = str(self.threads_per_worker)
+        logger.info(f"Scaling dask cluster to {self.n_workers} workers")
+        self._client.cluster.scale(self.n_workers)
+
     @log_runtime
     def run(self):
         """Run the workflow."""
-        # TODO: background processing maybe with prefect
-        # https://examples.dask.org/applications/prefect-etl.html
-        # TODO: maybe log the run times like this:
-        # https://distributed.dask.org/en/stable/logging.html
-        logger.info(f"Scaling dask cluster to {self.n_workers} workers")
-        self._client.cluster.scale(self.n_workers)
+        self._setup_workers()
 
         dem_fut = self._download_dem()
         burst_db_fut = self._download_burst_db()

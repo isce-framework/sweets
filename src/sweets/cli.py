@@ -1,5 +1,4 @@
 import argparse
-import os
 from datetime import datetime
 from pathlib import Path
 
@@ -118,13 +117,8 @@ def _get_cli_args():
 def main(args=None):
     """Top-level command line interface to the workflows."""
     args = _get_cli_args()
-    # Note: importing below here so that we can set the number of threads
-    # https://docs.dask.org/en/stable/array-best-practices.html#avoid-oversubscribing-threads
-    os.environ["OMP_NUM_THREADS"] = str(args.threads_per_worker)
-    # Note that setting OMP_NUM_THREADS here to 1, but passing threads_per_worker
-    # to the dask Client does not seem to work for COMPASS.
-    # It will just use 1 threads.
 
+    # importing below for faster CLI startup
     from sweets.core import Workflow
     from sweets.utils import to_bbox
 
