@@ -16,8 +16,8 @@ from ._types import Filename
 logger = get_log(__name__)
 
 # TODO: do i ever care to change these?
-X_SPAC = 5
-Y_SPAC = 10
+X_POSTING = 5
+Y_POSTING = 10
 POL = "co-pol"
 
 
@@ -53,8 +53,8 @@ def run_geocode(
         # Redirect all isce and compass logs to the same file
         burst_id_date = "_".join(burst_id_tup)
         logfile = Path(log_dir) / f"s1_geocode_slc_{burst_id_date}.log"
-        journal.info("s1_geocode_slc").device = journal.logfile(logfile, "w")
-        journal.info("isce").device = journal.logfile(logfile, "w")
+        journal.info("s1_geocode_slc").device = journal.logfile(fspath(logfile), "w")
+        journal.info("isce").device = journal.logfile(fspath(logfile), "w")
 
         s1_geocode_slc.run(cfg)
         if compress:
@@ -123,6 +123,8 @@ def create_config_files(
     dem_file: Filename,
     orbit_dir: Filename,
     bbox: Optional[Tuple[float, ...]] = None,
+    x_posting: int = X_POSTING,
+    y_posting: int = Y_POSTING,
     out_dir: Filename = Path("gslcs"),
     overwrite: bool = False,
     using_zipped: bool = False,
@@ -144,6 +146,10 @@ def create_config_files(
         Note that this does not change each burst's bounding box, but
         limits which bursts are used (skipped if they don't overlap).
         By default None (process all bursts in zip file for all files)
+    x_posting : int, optional
+        X posting (in meters) of geocoded output, by default 5 m.
+    y_posting : int, optional
+        Y posting (in meters) of geocoded output, by default 10 m.
     out_dir : Filename, optional
         Directory to store geocoded results, by default Path("gslcs")
     overwrite : bool, optional
@@ -176,8 +182,8 @@ def create_config_files(
         burst_db_file=fspath(burst_db_file),
         bbox=bbox,
         pol=POL,
-        x_spac=X_SPAC,
-        y_spac=Y_SPAC,
+        x_spac=x_posting,
+        y_spac=y_posting,
         using_zipped=using_zipped,
     )
     return sorted((Path(out_dir) / "runconfigs").glob("*"))
