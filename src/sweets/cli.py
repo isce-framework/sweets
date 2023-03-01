@@ -1,5 +1,5 @@
 import argparse
-import os
+from datetime import datetime
 from pathlib import Path
 
 
@@ -9,7 +9,20 @@ def _get_cli_args():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser._action_groups.pop()
-    aoi = parser.add_argument_group("Required args: specify area of interest")
+    cfg_option = parser.add_argument_group(
+        "Optional: Specify a pre-existing sweets_config.yaml to load"
+    )
+    cfg_option.add_argument(
+        "--config",
+        type=Path,
+        help=(
+            "Path to a pre-existing sweets_config.yaml file. \nIf not specified, a new"
+            " config will be created from the command line arguments."
+        ),
+    )
+    aoi = parser.add_argument_group(
+        "(For new configs) Required args: specify area of interest"
+    )
     aoi.add_argument(
         "-b",
         "--bbox",
@@ -40,12 +53,10 @@ def _get_cli_args():
     aoi.add_argument(
         "--start",
         help="Starting date for query (recommended: YYYY-MM-DD)",
-        required=True,
     )
     aoi.add_argument(
         "--track",
         type=int,
-        required=True,
         help="Limit to one path / relativeOrbit",
     )
 
@@ -117,33 +128,36 @@ def _get_cli_args():
 def main(args=None):
     """Top-level command line interface to the workflows."""
     args = _get_cli_args()
-    # Note: importing below here so that we can set the number of threads
-    # https://docs.dask.org/en/stable/array-best-practices.html#avoid-oversubscribing-threads
-    os.environ["OMP_NUM_THREADS"] = str(args.threads_per_worker)
-    # Note that setting OMP_NUM_THREADS here to 1, but passing threads_per_worker
-    # to the dask Client does not seem to work for COMPASS.
-    # It will just use 1 threads.
 
+    # importing below for faster CLI startup
     from sweets.core import Workflow
     from sweets.utils import to_bbox
 
-    if args.bbox is None:
-        if args.geojson is not None:
-            with open(args.geojson.name, "r") as f:
-                args.bbox = to_bbox(geojson=f.read())
-            args.geojson = None
-        elif args.wkt is not None:
-            if Path(args.wkt).exists():
-                with open(args.wkt, "r") as f:
-                    args.bbox = to_bbox(wkt=f.read())
+    if args.config is not None:
+        if not args.config.exists():
+            raise ValueError(f"Config file {args.config} does not exist")
+        if "yaml" not in args.config.suffix and "yml" not in args.config.suffix:
+            raise ValueError(f"Config file {args.config} is not a yaml file.")
+        workflow = Workflow.from_yaml(args.config)
+    else:
+        if args.bbox is None:
+            if args.geojson is not None:
+                with open(args.geojson.name, "r") as f:
+                    args.bbox = to_bbox(geojson=f.read())
+                args.geojson = None
+            elif args.wkt is not None:
+                if Path(args.wkt).exists():
+                    with open(args.wkt, "r") as f:
+                        args.bbox = to_bbox(wkt=f.read())
+                else:
+                    args.bbox = to_bbox(wkt=args.wkt)
             else:
-                args.bbox = to_bbox(wkt=args.wkt)
-        else:
-            raise ValueError(
-                "Must specify one of --bbox, --wkt, or --geojson for AOI bounds."
-            )
+                raise ValueError(
+                    "Must specify one of --bbox, --wkt, or --geojson for AOI bounds."
+                )
 
-    arg_dict = {k: v for k, v in vars(args).items() if v is not None}
+        arg_dict = {k: v for k, v in vars(args).items() if v is not None}
+        workflow = Workflow(**arg_dict)
 
-    workflow = Workflow(**arg_dict)
+    workflow.save(f"sweets_config_{datetime.now().strftime('%Y%m%d_%H%M%S')}.yaml")
     workflow.run()

@@ -1,4 +1,5 @@
 import json
+import os
 import sys
 from datetime import date, datetime
 from io import StringIO
@@ -26,9 +27,6 @@ from .dem import DEM
 from .download import ASFQuery
 
 logger = get_log(__name__)
-
-# TODO: save AOI, pad the DEM a little beyond that
-# figure out what to do with cropping the bursts... when to do that? probably before ifgs
 
 
 class Workflow(BaseModel):
@@ -99,12 +97,16 @@ class Workflow(BaseModel):
     )
 
     n_workers: int = Field(
-        4,
+        1,
         description="Number of workers to use for processing.",
     )
     threads_per_worker: int = Field(
-        2,
-        description="Number of threads per worker.",
+        8,
+        description=(
+            "Number of threads per worker, set using OMP_NUM_THREADS. This affects the"
+            " number of threads used by isce3 geocodeSlc, as well as the number of"
+            " threads numpy uses."
+        ),
     )
     overwrite: bool = Field(
         False,
@@ -113,6 +115,8 @@ class Workflow(BaseModel):
 
     # Internal attributes
     _client: Client = PrivateAttr()
+    # Extra logging from places that don't have access to the logger
+    _log_dir: Path = PrivateAttr()
 
     class Config:
         extra = Extra.allow  # Let us set arbitrary attributes later
@@ -260,11 +264,17 @@ class Workflow(BaseModel):
         # Start with 1 worker, scale later upon kicking off `run`
         if start_dask:
             self._client = Client(
-                n_workers=1, threads_per_worker=self.threads_per_worker
+                n_workers=1,
+                # Note: we're setting this to 1 because Dask doesn't know how many
+                # threads we're going to use in the workers, so it will kick off
+                # n_workers * threads_per_worker jobs at once, which is too many.
+                threads_per_worker=1,
             )
         else:
             self._client = None
+
         # Track the directories that need to be created at start of workflow
+        self._log_dir = self.work_dir / "logs"
         self.gslc_dir = self.work_dir / "gslcs"
         self.ifg_dir = self.work_dir / "interferograms"
         self.stitched_ifg_dir = self.ifg_dir / "stitched"
@@ -284,13 +294,17 @@ class Workflow(BaseModel):
     def _download_rslcs(self) -> Tuple[Future, Future]:
         """Download Sentinel zip files from ASF."""
         # TODO: probably can download a few at a time
-        rslc_futures = self._client.submit(self.asf_query.download)
+        self._log_dir.mkdir(parents=True, exist_ok=True)
+        rslc_futures = self._client.submit(
+            self.asf_query.download, log_dir=self._log_dir
+        )
         return rslc_futures
 
     @log_runtime
     def _geocode_slcs(self, slc_files, dem_file, burst_db_file):
         # TODO: unzip, probably in download
         # any reason to do this async?
+        self._log_dir.mkdir(parents=True, exist_ok=True)
         compass_cfg_files = create_config_files(
             slc_dir=slc_files[0].parent,
             burst_db_file=burst_db_file,
@@ -299,6 +313,7 @@ class Workflow(BaseModel):
             bbox=self.bbox,
             out_dir=self.gslc_dir,
             overwrite=self.overwrite,
+            using_zipped=not self.asf_query.unzip,
         )
 
         def cfg_to_filename(cfg_path: Path) -> str:
@@ -320,7 +335,13 @@ class Workflow(BaseModel):
                 gslc_files.append(name_to_paths[name])
             else:
                 # Run the geocoding if we dont have it already
-                gslc_futures.append(self._client.submit(run_geocode, cfg_file))
+                gslc_futures.append(
+                    self._client.submit(
+                        run_geocode,
+                        cfg_file,
+                        log_dir=self._log_dir,
+                    )
+                )
         gslc_files.extend(self._client.gather(gslc_futures))
         return gslc_files
 
@@ -421,15 +442,19 @@ class Workflow(BaseModel):
         # TODO: Maybe check the return codes here? or log the snaphu output?
         return unwrapped_files
 
+    def _setup_workers(self):
+        # https://docs.dask.org/en/stable/array-best-practices.html#avoid-oversubscribing-threads
+        # Note that setting OMP_NUM_THREADS here to 1, but passing threads_per_worker
+        # to the dask Client does not seem to work for COMPASS.
+        # It will just use 1 threads.
+        os.environ["OMP_NUM_THREADS"] = str(self.threads_per_worker)
+        logger.info(f"Scaling dask cluster to {self.n_workers} workers")
+        self._client.cluster.scale(self.n_workers)
+
     @log_runtime
     def run(self):
         """Run the workflow."""
-        # TODO: background processing maybe with prefect
-        # https://examples.dask.org/applications/prefect-etl.html
-        # TODO: maybe log the run times like this:
-        # https://distributed.dask.org/en/stable/logging.html
-        logger.info(f"Scaling dask cluster to {self.n_workers} workers")
-        self._client.cluster.scale(self.n_workers)
+        self._setup_workers()
 
         dem_fut = self._download_dem()
         burst_db_fut = self._download_burst_db()

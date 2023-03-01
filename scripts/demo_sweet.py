@@ -13,7 +13,7 @@ if __name__ == "__main__":
     lon, lat = -102.1407, 32.1909
     bbox = Point(lon, lat).buffer(0.2).bounds
     start, end, track = "2022-10-15", "2023-02-20", 78
-    n_workers, tpw = 10, 16
+    n_workers, tpw = 1, 8
 
     w = Workflow(
         bbox=bbox,
