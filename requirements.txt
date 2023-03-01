@@ -4,12 +4,10 @@
 # SYNC THIS WITH conda-env
 # These are the packages easily-installable through pip
 # gdal>=3.3
+compass @ git+https://github.com/opera-adt/COMPASS.git
 dask>=2022.6.0
-git+https://github.com/opera-adt/compass
-git+https://github.com/opera-adt/dolphin
-git+https://github.com/opera-adt/s1-reader
+dolphin @ git+https://github.com/opera-adt/dolphin.git
 h5py>=3.6
-h5py>=3.6.0
 lxml
 numpy>=1.20
 pandas
@@ -19,6 +17,7 @@ pyproj>=3.2
 requests>=2.10
 rich>=13.0
 ruamel_yaml>=0.15
+s1reader @ git+https://github.com/opera-adt/s1-reader.git
 sardem>=0.11.1
 scipy>=1.5
 sentineleof>=0.6.5
