@@ -13,6 +13,7 @@ dependencies:
   - ruamel.yaml>=0.15
   - rich>=13.0
   - rioxarray>=0.13
+  - shapely>=1.8
   - dask>= 2022.6.0
   - isce3      # extra from COMPASS
   - scipy>=1.5 # extra from COMPASS

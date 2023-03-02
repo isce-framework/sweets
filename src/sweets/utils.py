@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 from pathlib import Path
@@ -5,7 +6,7 @@ from typing import Optional, Tuple
 
 import rasterio as rio
 from rasterio.vrt import WarpedVRT
-from shapely import from_geojson, from_wkt, geometry
+from shapely import from_wkt, geometry
 
 from ._types import Filename
 
@@ -68,7 +69,7 @@ def to_bbox(*, geojson: Optional[str] = None, wkt: Optional[str] = None) -> Tupl
         If neither geojson nor wkt are provided.
     """
     if geojson is not None:
-        geom = from_geojson(geojson)
+        geom = geometry.shape(json.loads(geojson))
     elif wkt is not None:
         geom = from_wkt(wkt)
     else:
