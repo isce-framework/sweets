@@ -137,10 +137,10 @@ class Workflow(BaseModel):
         # Expand the bbox a little bit so DEM fully covers the data
         bbox = values.get("bbox")
         dem_bbox = (
-            bbox[0] - 0.15,
-            bbox[1] - 0.15,
-            bbox[2] + 0.15,
-            bbox[3] + 0.15,
+            bbox[0] - 0.25,
+            bbox[1] - 0.25,
+            bbox[2] + 0.25,
+            bbox[3] + 0.25,
         )
         return DEM(bbox=dem_bbox)
 
