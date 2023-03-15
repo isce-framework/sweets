@@ -186,5 +186,6 @@ def create_config_files(
         y_spac=y_posting,
         using_zipped=using_zipped,
         enable_corrections=False,
+        enable_metadata=True,
     )
     return sorted((Path(out_dir) / "runconfigs").glob("*"))
