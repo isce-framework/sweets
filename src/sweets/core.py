@@ -21,6 +21,7 @@ from ._config import _add_comments
 from ._geocode_slcs import create_config_files, run_geocode
 from ._interferograms import create_cor, create_ifg
 from ._log import get_log, log_runtime
+from ._netrc import setup_nasa_netrc
 from ._orbit import download_orbits
 from ._types import Filename
 from .dem import DEM
@@ -454,6 +455,7 @@ class Workflow(BaseModel):
     @log_runtime
     def run(self):
         """Run the workflow."""
+        setup_nasa_netrc()
         self._setup_workers()
 
         dem_fut = self._download_dem()

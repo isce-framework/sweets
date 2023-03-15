@@ -20,9 +20,12 @@ import time
 from collections.abc import Callable
 from functools import wraps
 
+from rich.console import Console
 from rich.logging import RichHandler
 
-__all__ = ["get_log", "log_runtime"]
+__all__ = ["get_log", "log_runtime", "console"]
+
+console = Console()
 
 
 def get_log(
