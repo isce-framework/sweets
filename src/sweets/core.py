@@ -427,13 +427,12 @@ class Workflow(BaseModel):
                 unwrap_futures.append(
                     self._client.submit(
                         unwrap.unwrap,
-                        ifg_file,
-                        outfile,
-                        cor_file,
-                        looks=self.looks,
-                        do_tile=False,  # Probably make this an option too
+                        ifg_filename=ifg_file,
+                        cor_filename=cor_file,
+                        unw_filename=outfile,
+                        nlooks=self.looks,
+                        # do_tile=False,  # Probably make this an option too
                         init_method="mst",  # TODO: make this an option?
-                        alt_line_data=False,
                     )
                 )
 
