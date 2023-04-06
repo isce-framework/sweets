@@ -13,7 +13,7 @@ def _get_cli_args():
         "Optional: Specify a pre-existing sweets_config.yaml to load"
     )
     cfg_option.add_argument(
-        "--config",
+        "--config-file",
         type=Path,
         help=(
             "Path to a pre-existing sweets_config.yaml file. \nIf not specified, a new"
