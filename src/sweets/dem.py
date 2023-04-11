@@ -46,6 +46,7 @@ def create_water_mask(
         bbox=bbox,
         cache_dir=get_cache_dir(),
         output_format="ROI_PAC",
+        data_source="NASA_WATER",
         output_type="uint8",
     )
     # Flip the mask so that 1 is land and 0 is water

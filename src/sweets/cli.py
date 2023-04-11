@@ -133,12 +133,15 @@ def main(args=None):
     from sweets.core import Workflow
     from sweets.utils import to_bbox
 
-    if args.config is not None:
-        if not args.config.exists():
-            raise ValueError(f"Config file {args.config} does not exist")
-        if "yaml" not in args.config.suffix and "yml" not in args.config.suffix:
-            raise ValueError(f"Config file {args.config} is not a yaml file.")
-        workflow = Workflow.from_yaml(args.config)
+    if args.config_file is not None:
+        if not args.config_file.exists():
+            raise ValueError(f"Config file {args.config_file} does not exist")
+        if (
+            "yaml" not in args.config_file.suffix
+            and "yml" not in args.config_file.suffix
+        ):
+            raise ValueError(f"Config file {args.config_file} is not a yaml file.")
+        workflow = Workflow.from_yaml(args.config_file)
     else:
         if args.bbox is None:
             if args.geojson is not None:
@@ -153,7 +156,8 @@ def main(args=None):
                     args.bbox = to_bbox(wkt=args.wkt)
             else:
                 raise ValueError(
-                    "Must specify one of --bbox, --wkt, or --geojson for AOI bounds."
+                    "Must specify --config, or one of --bbox, --wkt, or --geojson for"
+                    " AOI bounds."
                 )
 
         arg_dict = {k: v for k, v in vars(args).items() if v is not None}

@@ -131,8 +131,8 @@ class Workflow(YamlModel):
     def _create_query(cls, v, values):
         if v is not None:
             return v
-        bbox = values.get("bbox")
 
+        bbox = values.get("bbox")
         track = values.get("track")
         if track is None:
             raise ValueError("Must specify either `track`, or full `asf_query`")
@@ -180,9 +180,6 @@ class Workflow(YamlModel):
             values["orbit_dir"] = (values["work_dir"] / values["orbit_dir"]).resolve()
         if not values["_data_dir_is_set"]:
             values["data_dir"] = (values["work_dir"] / values["data_dir"]).resolve()
-        values["dem"].output_name = (
-            values["work_dir"] / values["dem"].output_name
-        ).resolve()
 
         return values
 
@@ -239,7 +236,7 @@ class Workflow(YamlModel):
     def _download_water_mask(self) -> Future:
         """Kick off download of water mask."""
         return self._client.submit(
-            create_water_mask, self.water_mask_filename, self._dem_bbox
+            create_water_mask, self._water_mask_filename, self._dem_bbox
         )
 
     def _download_rslcs(self) -> Tuple[Future, Future]:
@@ -426,6 +423,7 @@ class Workflow(YamlModel):
 
         dem_fut = self._download_dem()
         burst_db_fut = self._download_burst_db()
+        water_mask_fut = self._download_water_mask()
         rslc_futures = self._download_rslcs()
         # Use .parent of the .result() so that next step depends on the result
         rslc_data_path = rslc_futures.result()[0].parent
@@ -434,7 +432,9 @@ class Workflow(YamlModel):
         )
 
         # Gather the futures once everything is downloaded
-        dem_file, burst_db_file = self._client.gather([dem_fut, burst_db_fut])
+        dem_file, burst_db_file, _ = self._client.gather(
+            [dem_fut, burst_db_fut, water_mask_fut]
+        )
         rslc_files = rslc_futures.result()
         orbit_futures.result()
 

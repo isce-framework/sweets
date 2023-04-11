@@ -26,9 +26,9 @@ from pathlib import Path
 from typing import Any, List, Optional
 from urllib.parse import urlencode
 
+import rasterio as rio
 import requests
 from dateutil.parser import parse
-from osgeo import gdal
 from pydantic import BaseModel, Extra, Field, PrivateAttr, root_validator, validator
 from shapely import wkt
 
@@ -205,11 +205,8 @@ class ASFQuery(BaseModel):
 
     @staticmethod
     def _get_dem_bbox(fname):
-        ds = gdal.Open(fname)
-        left, xres, _, top, _, yres = ds.GetGeoTransform()
-        right = left + (ds.RasterXSize * xres)
-        bottom = top + (ds.RasterYSize * yres)
-        return left, bottom, right, top
+        with rio.open(fname) as ds:
+            return ds.bounds
 
     @staticmethod
     def _get_wkt_bbox(fname):
