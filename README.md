@@ -27,8 +27,6 @@ conda activate sweets-env
 python -m pip install .
 ```
 
-For the unwrapping portion, it is assumed you have installed [SNAPHU](https://web.stanford.edu/group/radar/softwareandlinks/sw/snaphu/) and have `snaphu` in your path.
-
 
 ## Usage
 
