@@ -1,4 +1,5 @@
 import argparse
+import json
 from datetime import datetime
 from pathlib import Path
 
@@ -131,7 +132,7 @@ def main(args=None):
 
     # importing below for faster CLI startup
     from sweets.core import Workflow
-    from sweets.utils import to_bbox
+    from sweets.utils import to_wkt
 
     if args.config_file is not None:
         if not args.config_file.exists():
@@ -143,18 +144,11 @@ def main(args=None):
             raise ValueError(f"Config file {args.config_file} is not a yaml file.")
         workflow = Workflow.from_yaml(args.config_file)
     else:
-        if args.bbox is None:
-            if args.geojson is not None:
-                with open(args.geojson.name, "r") as f:
-                    args.bbox = to_bbox(geojson=f.read())
-                args.geojson = None
-            elif args.wkt is not None:
-                if Path(args.wkt).exists():
-                    with open(args.wkt, "r") as f:
-                        args.bbox = to_bbox(wkt=f.read())
-                else:
-                    args.bbox = to_bbox(wkt=args.wkt)
-            else:
+        if args.geojson is not None:
+            with open(args.geojson.name, "r") as f:
+                args.wkt = to_wkt(json.load(f))
+            args.geojson = None
+            if args.wkt is None and args.bbox is None:
                 raise ValueError(
                     "Must specify --config, or one of --bbox, --wkt, or --geojson for"
                     " AOI bounds."

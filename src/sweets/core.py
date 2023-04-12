@@ -12,6 +12,7 @@ from dolphin.interferogram import Network
 from dolphin.workflows import group_by_burst
 from dolphin.workflows.config import OPERA_DATASET_NAME, YamlModel
 from pydantic import Extra, Field, PrivateAttr, root_validator, validator
+from shapely import geometry, wkt
 
 from ._burst_db import get_burst_db
 from ._geocode_slcs import create_config_files, run_geocode
@@ -36,11 +37,15 @@ class Workflow(YamlModel):
 
     # Steps
     bbox: Tuple[float, ...] = Field(
-        ...,
+        None,
         description=(
             "lower left lon, lat, upper right format e.g."
             " bbox=(-150.2,65.0,-150.1,65.5)"
         ),
+    )
+    wkt: Optional[str] = Field(
+        None,
+        description="Well Known Text (WKT) string (overrides bbox)",
     )
     start: datetime = Field(
         None,
@@ -118,6 +123,15 @@ class Workflow(YamlModel):
     def _expand_dirs(cls, v):
         return Path(v).expanduser().resolve()
 
+    @validator("wkt", pre=True)
+    def _parse_wkt(cls, v):
+        if v is not None:
+            try:
+                wkt.loads(v)
+            except Exception as e:
+                raise ValueError(f"Invalid WKT string: {e}")
+        return v
+
     @validator("start", "end", pre=True)
     def _parse_date(cls, v):
         if isinstance(v, datetime):
@@ -133,12 +147,14 @@ class Workflow(YamlModel):
             return v
 
         bbox = values.get("bbox")
+        wkt = values.get("wkt")
         track = values.get("track")
         if track is None:
             raise ValueError("Must specify either `track`, or full `asf_query`")
 
         asf_params = dict(
             bbox=bbox,
+            wkt=wkt,
             start=values.get("start"),
             end=values.get("end"),
             relativeOrbit=track,
@@ -181,6 +197,18 @@ class Workflow(YamlModel):
         if not values["_data_dir_is_set"]:
             values["data_dir"] = (values["work_dir"] / values["data_dir"]).resolve()
 
+        return values
+
+    @root_validator()
+    def _set_bbox_and_wkt(cls, values):
+        # If they've specified a bbox, we need to set the wkt
+        if "bbox" not in values:
+            if "wkt" not in values:
+                raise ValueError("Must specify either `bbox` or `wkt`")
+            else:
+                values["bbox"] = wkt.loads(values["wkt"]).bounds
+        else:
+            values["wkt"] = wkt.dumps(geometry.box(*values["bbox"]))
         return values
 
     def save(self, config_file: Filename = "sweets_config.yaml"):

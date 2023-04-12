@@ -31,6 +31,7 @@ import requests
 from dateutil.parser import parse
 from pydantic import BaseModel, Extra, Field, PrivateAttr, root_validator, validator
 from shapely import wkt
+from shapely.geometry import box
 
 from ._log import get_log, log_runtime
 from ._types import Filename
@@ -55,11 +56,15 @@ class ASFQuery(BaseModel):
             " bbox=(-150.2,65.0,-150.1,65.5)"
         ),
     )
+    wkt: Optional[str] = Field(
+        None,
+        description="Well Known Text (WKT) string",
+    )
     dem: Optional[str] = Field(
         None,
         description="Name of DEM filename (will parse bbox)",
     )
-    wkt_file: Optional[str] = Field(
+    wkt_file: Optional[Path] = Field(
         None,
         description="Well Known Text (WKT) file",
     )
@@ -118,13 +123,16 @@ class ASFQuery(BaseModel):
             return "DESCENDING"
 
     @root_validator
-    def _check_bbox(cls, values):
-        if values.get("dem") is not None:
-            values["bbox"] = cls._get_dem_bbox(values["dem"])
-        elif values.get("wkt_file") is not None:
-            values["bbox"] = cls._get_wkt_bbox(values["wkt_file"])
-        if values.get("bbox") is None:
-            raise ValueError("Must provide a bbox or a dem or a wkt_file")
+    def _check_search_area(cls, values):
+        if not values.get("wkt"):
+            if values.get("bbox") is not None:
+                values["wkt"] = box(*values["bbox"]).wkt
+            elif values.get("dem") is not None:
+                values["wkt"] = cls._get_dem_bbox(values["dem"])
+            elif values.get("wkt_file") is not None:
+                with open(values["wkt_file"]) as f:
+                    values["wkt"] = wkt.load(f)
+            raise ValueError("Must provide a bbox or a dem or wkt")
 
         # Check that end is after start
         if values.get("start") is not None and values.get("end") is not None:
@@ -140,7 +148,9 @@ class ASFQuery(BaseModel):
     def _form_url(self) -> str:
         """Form the url for the ASF query."""
         params = dict(
-            bbox=",".join(map(str, self.bbox)) if self.bbox else None,
+            # bbox is getting deprecated in favor of intersectsWith
+            # https://docs.asf.alaska.edu/api/keywords/#geospatial-parameters
+            intersectsWith=self.wkt,
             start=self.start,
             end=self.end,
             processingLevel="SLC",
@@ -206,12 +216,7 @@ class ASFQuery(BaseModel):
     @staticmethod
     def _get_dem_bbox(fname):
         with rio.open(fname) as ds:
-            return ds.bounds
-
-    @staticmethod
-    def _get_wkt_bbox(fname):
-        with open(fname) as f:
-            return wkt.load(f).bounds
+            return wkt.dumps(box(ds.bounds))
 
 
 @lru_cache(maxsize=10)
