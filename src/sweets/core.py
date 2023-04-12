@@ -202,8 +202,8 @@ class Workflow(YamlModel):
     @root_validator()
     def _set_bbox_and_wkt(cls, values):
         # If they've specified a bbox, we need to set the wkt
-        if "bbox" not in values:
-            if "wkt" not in values:
+        if not values.get("bbox"):
+            if not values.get("wkt"):
                 raise ValueError("Must specify either `bbox` or `wkt`")
             else:
                 values["bbox"] = wkt.loads(values["wkt"]).bounds
