@@ -311,5 +311,12 @@ def _unzip_one(filepath: Filename, pol: str = "vv", out_dir=Path(".")):
         zipref.extractall(path=out_dir, members=names_to_extract)
 
 
+def delete_tiffs_within_zip(data_path: Filename, pol: str = "vh"):
+    """Delete (in place) the tiff files within a zip file matching `pol`."""
+    cmd = f"""find {data_path} -name "S*.zip" | xargs -I{{}} -n1 -P4 zip -d {{}} '*-vh-*.tiff'"""  # noqa
+    logger.info(cmd)
+    subprocess.run(cmd, shell=True, check=True)
+
+
 if __name__ == "__main__":
     cli()

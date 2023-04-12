@@ -74,6 +74,7 @@ def repack_and_compress(
     chunks: Sequence[int] = (128, 128),
     outfile: Optional[Filename] = None,
     overwrite: bool = True,
+    dset_name="science/SENTINEL1/CSLC/grids/VV",
 ):
     """Chunk output product and compress it."""
     temp_out = str(slc_file).replace(".h5", "_zeroed.h5")
@@ -95,7 +96,6 @@ def repack_and_compress(
     logger.debug(f"Copying {slc_file} to {temp_out}, zeroing mantissa")
     shutil.copy(slc_file, temp_out)
     with h5py.File(temp_out, "r+") as hf:
-        dset_name = "science/SENTINEL1/CSLC/grids/VV"
         dset = hf[dset_name]
         data = dset[:]
 

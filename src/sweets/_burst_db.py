@@ -1,31 +1,27 @@
-import shutil
+import zipfile
 from pathlib import Path
 from typing import Optional
+
+import requests
 
 from ._log import get_log
 from ._types import Filename
 from .utils import get_cache_dir
 
-# import requests
-
-
-DEFAULT_BURST_DB_FILE = Path("/u/aurora-r0/staniewi/dev/burst_map_bbox_only.sqlite3")
+BURST_DB_URL = "https://github.com/scottstanie/burst_db/raw/frames-with-data/data/s1-frames-9frames-5min-10max-bbox-only.gpkg.zip"  # noqa: E501
 
 logger = get_log(__name__)
 
 
-def get_burst_db(
-    uri: Filename = DEFAULT_BURST_DB_FILE, out_file: Optional[Filename] = None
-) -> Path:
+def get_burst_db(url: str = BURST_DB_URL, out_file: Optional[Filename] = None) -> Path:
     """Read or download the burst-db file.
 
     TODO: getting a URL to a release version of the sqlite database.
 
     Parameters
     ----------
-    uri : str, optional
+    url : str, optional
         Location to download from.
-        Note: this currently is a local file, by default DEFAULT_BURST_DB_FILE
     out_file : Optional[Filename], optional
         Location to save locally. If None, will save to
         `get_cache_dir() / "burst_map_bbox_only.sqlite3"`, by default None
@@ -48,21 +44,19 @@ def get_burst_db(
         logger.info(f"Using cached burst DB at {out_file}")
         return out_file
 
-    logger.info(f"Copying {uri}...")
-    shutil.copy(uri, out_file)
-    # r = requests.get(uri)
-    # r.raise_for_status()
-    # with open(out_file, "wb") as f:
-    #     f.write(r.content)
+    logger.info(f"Copying {url} to local...")
+    remote_filename = url.split("/")[-1]
+    temp_file = out_file.parent / remote_filename
+    print(temp_file)
+    r = requests.get(url)
+    r.raise_for_status()
+    with open(temp_file, "wb") as f:
+        f.write(r.content)
+    if str(temp_file).endswith(".zip"):
+        # extract and rename the result to out_file
+        with zipfile.ZipFile(temp_file, "r") as zip_ref:
+            zipinfo = zip_ref.infolist()[0]
+            zip_ref.extract(zipinfo, out_file.parent)
+            (out_file.parent / zipinfo.filename).rename(out_file)
+
     return out_file
-
-
-# @functools.lru_cache(maxsize=2)
-# def _read_burst_json(fname: Filename) -> Dict[str, List[str]]:
-#     """Read a pre-downloaded burst-dict file into memory."""
-#     if str(fname).endswith(".gz"):
-#         with gzip.open(fname, "r") as f:
-#             return json.loads(f.read().decode("utf-8"))
-#     else:
-#         with open(fname) as f:
-#             return json.load(f)
