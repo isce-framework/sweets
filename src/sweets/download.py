@@ -26,11 +26,12 @@ from pathlib import Path
 from typing import Any, List, Optional
 from urllib.parse import urlencode
 
+import rasterio as rio
 import requests
 from dateutil.parser import parse
-from osgeo import gdal
 from pydantic import BaseModel, Extra, Field, PrivateAttr, root_validator, validator
 from shapely import wkt
+from shapely.geometry import box
 
 from ._log import get_log, log_runtime
 from ._types import Filename
@@ -55,11 +56,15 @@ class ASFQuery(BaseModel):
             " bbox=(-150.2,65.0,-150.1,65.5)"
         ),
     )
+    wkt: Optional[str] = Field(
+        None,
+        description="Well Known Text (WKT) string",
+    )
     dem: Optional[str] = Field(
         None,
         description="Name of DEM filename (will parse bbox)",
     )
-    wkt_file: Optional[str] = Field(
+    wkt_file: Optional[Path] = Field(
         None,
         description="Well Known Text (WKT) file",
     )
@@ -118,13 +123,16 @@ class ASFQuery(BaseModel):
             return "DESCENDING"
 
     @root_validator
-    def _check_bbox(cls, values):
-        if values.get("dem") is not None:
-            values["bbox"] = cls._get_dem_bbox(values["dem"])
-        elif values.get("wkt_file") is not None:
-            values["bbox"] = cls._get_wkt_bbox(values["wkt_file"])
-        if values.get("bbox") is None:
-            raise ValueError("Must provide a bbox or a dem or a wkt_file")
+    def _check_search_area(cls, values):
+        if not values.get("wkt"):
+            if values.get("bbox") is not None:
+                values["wkt"] = box(*values["bbox"]).wkt
+            elif values.get("dem") is not None:
+                values["wkt"] = cls._get_dem_bbox(values["dem"])
+            elif values.get("wkt_file") is not None:
+                with open(values["wkt_file"]) as f:
+                    values["wkt"] = wkt.load(f)
+            raise ValueError("Must provide a bbox or a dem or wkt")
 
         # Check that end is after start
         if values.get("start") is not None and values.get("end") is not None:
@@ -140,7 +148,9 @@ class ASFQuery(BaseModel):
     def _form_url(self) -> str:
         """Form the url for the ASF query."""
         params = dict(
-            bbox=",".join(map(str, self.bbox)) if self.bbox else None,
+            # bbox is getting deprecated in favor of intersectsWith
+            # https://docs.asf.alaska.edu/api/keywords/#geospatial-parameters
+            intersectsWith=self.wkt,
             start=self.start,
             end=self.end,
             processingLevel="SLC",
@@ -205,16 +215,8 @@ class ASFQuery(BaseModel):
 
     @staticmethod
     def _get_dem_bbox(fname):
-        ds = gdal.Open(fname)
-        left, xres, _, top, _, yres = ds.GetGeoTransform()
-        right = left + (ds.RasterXSize * xres)
-        bottom = top + (ds.RasterYSize * yres)
-        return left, bottom, right, top
-
-    @staticmethod
-    def _get_wkt_bbox(fname):
-        with open(fname) as f:
-            return wkt.load(f).bounds
+        with rio.open(fname) as ds:
+            return wkt.dumps(box(ds.bounds))
 
 
 @lru_cache(maxsize=10)
@@ -307,6 +309,13 @@ def _unzip_one(filepath: Filename, pol: str = "vv", out_dir=Path(".")):
             fp for fp in zipref.namelist() if pol.lower() in str(fp).lower()
         ]
         zipref.extractall(path=out_dir, members=names_to_extract)
+
+
+def delete_tiffs_within_zip(data_path: Filename, pol: str = "vh"):
+    """Delete (in place) the tiff files within a zip file matching `pol`."""
+    cmd = f"""find {data_path} -name "S*.zip" | xargs -I{{}} -n1 -P4 zip -d {{}} '*-vh-*.tiff'"""  # noqa
+    logger.info(cmd)
+    subprocess.run(cmd, shell=True, check=True)
 
 
 if __name__ == "__main__":

@@ -1,3 +1,4 @@
+from functools import lru_cache
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -107,7 +108,12 @@ def plot_ifg(
     return fig, ax
 
 
-def browse_ifgs(sweets_path: Filename):
+@lru_cache(maxsize=30)
+def _get_img(filename: Filename):
+    return io.load_gdal(filename)
+
+
+def browse_ifgs(sweets_path: Filename, figsize: Tuple[int, int] = (7, 4), vm: int = 10):
     """Browse interferograms in a sweets directory.
 
     Creates an interactive plot with a slider to browse stitched interferograms.
@@ -116,26 +122,45 @@ def browse_ifgs(sweets_path: Filename):
     ----------
     sweets_path : str
         Path to sweets directory.
+    figsize : tuple
+        Figure size.
+    vm : int
+        Value used as min/max cutoff for unwrapped phase plot.
     """
     ifg_path = Path(sweets_path) / "interferograms/stitched"
     file_list = sorted(ifg_path.glob("2*.int"))
 
-    imgs = np.stack([io.load_gdal(f) for f in file_list])
-    phases = np.angle(imgs)
-    cors = np.abs(imgs)
-    dates = [f.stem for f in file_list]
+    unw_path = Path(sweets_path) / "interferograms/unwrapped"
+    unw_list = sorted(unw_path.glob("2*.unw"))
 
-    fig, axes = plt.subplots(ncols=2, figsize=(7, 4))
+    # imgs = np.stack([io.load_gdal(f) for f in file_list])
+    img = _get_img(file_list[0])
+    phase = np.angle(img)
+    cor = np.abs(img)
+    titles = [f.stem for f in file_list]
+
+    ncols = 3 if len(unw_list) > 0 else 2
+    fig, axes = plt.subplots(ncols=ncols, figsize=figsize, sharex=True, sharey=True)
 
     # plot once with colorbar
-    plot_ifg(img=phases[0], add_colorbar=True, ax=axes[0])
+    plot_ifg(img=phase, add_colorbar=True, ax=axes[0])
     axim_ifg = axes[0].images[0]
 
-    axim_cor = axes[1].imshow(cors[0], cmap="plasma", vmax=1, vmin=0)
+    axim_cor = axes[1].imshow(cor, cmap="plasma", vmax=1, vmin=0)
     fig.colorbar(axim_cor, ax=axes[1])
+
+    if ncols == 3:
+        unw = _get_img(unw_list[0])
+        axim_unw = axes[2].imshow(unw, cmap="RdBu", vmin=-vm, vmax=vm)
+        fig.colorbar(axim_unw, ax=axes[2])
 
     @ipywidgets.interact(idx=(0, len(file_list) - 1))
     def browse_plot(idx=0):
-        axim_ifg.set_data(phases[idx])
-        axim_cor.set_data(cors[idx])
-        fig.suptitle(dates[idx])
+        phase = np.angle(_get_img(file_list[idx]))
+        cor = np.abs(_get_img(file_list[idx]))
+        axim_ifg.set_data(phase)
+        axim_cor.set_data(cor)
+        if ncols == 3:
+            unw = _get_img(unw_list[idx])
+            axim_unw.set_data(unw)
+        fig.suptitle(titles[idx])

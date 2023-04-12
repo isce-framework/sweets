@@ -1,36 +1,33 @@
-import json
 import os
-import sys
 from datetime import date, datetime
-from io import StringIO
 from pathlib import Path
-from typing import Any, Optional, TextIO, Tuple, Union
+from typing import Any, Optional, Tuple
 
+import dask.config
+import numpy as np
 from dask.distributed import Client, Future
 from dateutil.parser import parse
 from dolphin import io, stitching, unwrap
 from dolphin.interferogram import Network
 from dolphin.workflows import group_by_burst
-from dolphin.workflows.config import OPERA_DATASET_NAME
-from pydantic import BaseModel, Extra, Field, PrivateAttr, root_validator, validator
-from ruamel.yaml import YAML
-from ruamel.yaml.comments import CommentedMap
+from dolphin.workflows.config import OPERA_DATASET_NAME, YamlModel
+from pydantic import Extra, Field, PrivateAttr, root_validator, validator
+from shapely import geometry, wkt
 
 from ._burst_db import get_burst_db
-from ._config import _add_comments
 from ._geocode_slcs import create_config_files, run_geocode
 from ._interferograms import create_cor, create_ifg
 from ._log import get_log, log_runtime
 from ._netrc import setup_nasa_netrc
 from ._orbit import download_orbits
 from ._types import Filename
-from .dem import DEM
+from .dem import create_dem, create_water_mask
 from .download import ASFQuery
 
 logger = get_log(__name__)
 
 
-class Workflow(BaseModel):
+class Workflow(YamlModel):
     """Class for end-to-end processing of Sentinel-1 data."""
 
     work_dir: Path = Field(
@@ -40,11 +37,15 @@ class Workflow(BaseModel):
 
     # Steps
     bbox: Tuple[float, ...] = Field(
-        ...,
+        None,
         description=(
             "lower left lon, lat, upper right format e.g."
             " bbox=(-150.2,65.0,-150.1,65.5)"
         ),
+    )
+    wkt: Optional[str] = Field(
+        None,
+        description="Well Known Text (WKT) string (overrides bbox)",
     )
     start: datetime = Field(
         None,
@@ -71,11 +72,6 @@ class Workflow(BaseModel):
     orbit_dir: Path = Field(
         Path("orbits"),
         description="Directory for orbit files.",
-    )
-
-    dem: DEM = Field(
-        None,
-        description="DEM parameters.",
     )
     asf_query: ASFQuery = Field(
         None,
@@ -122,6 +118,20 @@ class Workflow(BaseModel):
     class Config:
         extra = Extra.allow  # Let us set arbitrary attributes later
 
+    # expanduser and resolve each of the dirs:
+    @validator("work_dir", "data_dir", "orbit_dir", pre=True)
+    def _expand_dirs(cls, v):
+        return Path(v).expanduser().resolve()
+
+    @validator("wkt", pre=True)
+    def _parse_wkt(cls, v):
+        if v is not None:
+            try:
+                wkt.loads(v)
+            except Exception as e:
+                raise ValueError(f"Invalid WKT string: {e}")
+        return v
+
     @validator("start", "end", pre=True)
     def _parse_date(cls, v):
         if isinstance(v, datetime):
@@ -131,31 +141,20 @@ class Workflow(BaseModel):
             return datetime.combine(v, datetime.min.time())
         return parse(v)
 
-    @validator("dem", pre=True, always=True)
-    def _use_same_bbox(cls, v, values):
-        if v is not None:
-            return v
-        # Expand the bbox a little bit so DEM fully covers the data
-        bbox = values.get("bbox")
-        dem_bbox = (
-            bbox[0] - 0.25,
-            bbox[1] - 0.25,
-            bbox[2] + 0.25,
-            bbox[3] + 0.25,
-        )
-        return DEM(bbox=dem_bbox)
-
     @validator("asf_query", pre=True, always=True)
     def _create_query(cls, v, values):
         if v is not None:
             return v
+
         bbox = values.get("bbox")
+        wkt = values.get("wkt")
         track = values.get("track")
         if track is None:
             raise ValueError("Must specify either `track`, or full `asf_query`")
 
         asf_params = dict(
             bbox=bbox,
+            wkt=wkt,
             start=values.get("start"),
             end=values.get("end"),
             relativeOrbit=track,
@@ -197,68 +196,31 @@ class Workflow(BaseModel):
             values["orbit_dir"] = (values["work_dir"] / values["orbit_dir"]).resolve()
         if not values["_data_dir_is_set"]:
             values["data_dir"] = (values["work_dir"] / values["data_dir"]).resolve()
+
         return values
 
-    # Extra serializing methods
-    def _to_yaml_obj(self) -> CommentedMap:
-        # Make the YAML object to add comments to
-        # We can't just do `dumps` for some reason, need a stream
-        y = YAML()
-        ss = StringIO()
-        y.dump(json.loads(self.json(by_alias=True)), ss)
-        yaml_obj = y.load(ss.getvalue())
-        return yaml_obj
-
-    def to_yaml(
-        self, output_path: Union[Filename, TextIO] = sys.stdout, with_comments=True
-    ):
-        """Save workflow configuration as a yaml file.
-
-        Used to record the default-filled version of a supplied yaml.
-
-        Parameters
-        ----------
-        output_path : Pathlike
-            Path to the yaml file to save.
-        with_comments : bool, default = False.
-            Whether to add comments containing the type/descriptions to all fields.
-        """
-        yaml_obj = self._to_yaml_obj()
-
-        if with_comments:
-            _add_comments(yaml_obj, self.schema())
-
-        y = YAML()
-        if hasattr(output_path, "write"):
-            y.dump(yaml_obj, output_path)
+    @root_validator()
+    def _set_bbox_and_wkt(cls, values):
+        # If they've specified a bbox, we need to set the wkt
+        if not values.get("bbox"):
+            if not values.get("wkt"):
+                raise ValueError("Must specify either `bbox` or `wkt`")
+            else:
+                values["bbox"] = wkt.loads(values["wkt"]).bounds
         else:
-            with open(output_path, "w") as f:
-                y.dump(yaml_obj, f)
-
-    @classmethod
-    def from_yaml(cls, yaml_path: Filename):
-        """Load a workflow configuration from a yaml file.
-
-        Parameters
-        ----------
-        yaml_path : Pathlike
-            Path to the yaml file to load.
-
-        Returns
-        -------
-        Config
-            Workflow configuration
-        """
-        y = YAML(typ="safe")
-        with open(yaml_path, "r") as f:
-            data = y.load(f)
-
-        return cls(**data)
+            values["wkt"] = wkt.dumps(geometry.box(*values["bbox"]))
+        return values
 
     def save(self, config_file: Filename = "sweets_config.yaml"):
         """Save the workflow configuration."""
         logger.info(f"Saving config to {config_file}")
         self.to_yaml(config_file)
+
+    @classmethod
+    def load(cls, config_file: Filename = "sweets_config.yaml"):
+        """Load the workflow configuration."""
+        logger.info(f"Loading config from {config_file}")
+        return cls.from_yaml(config_file)
 
     def __init__(self, start_dask=True, **data: Any) -> None:
         super().__init__(**data)
@@ -280,18 +242,31 @@ class Workflow(BaseModel):
         self.ifg_dir = self.work_dir / "interferograms"
         self.stitched_ifg_dir = self.ifg_dir / "stitched"
         self.unw_dir = self.ifg_dir / "unwrapped"
+        self._dem_filename = self.work_dir / "dem.tif"
+        self._water_mask_filename = self.work_dir / "watermask.flg"
 
-    @log_runtime
+        # Expanded version used for internal processing
+        self._dem_bbox = (
+            self.bbox[0] - 0.25,
+            self.bbox[1] - 0.25,
+            self.bbox[2] + 0.25,
+            self.bbox[3] + 0.25,
+        )
+
     def _download_dem(self) -> Future:
         """Kick off download/creation the DEM."""
-        return self._client.submit(self.dem.create)
+        return self._client.submit(create_dem, self._dem_filename, self._dem_bbox)
 
-    @log_runtime
     def _download_burst_db(self) -> Future:
         """Kick off download of burst database to get the GSLC bbox/EPSG."""
         return self._client.submit(get_burst_db)
 
-    @log_runtime
+    def _download_water_mask(self) -> Future:
+        """Kick off download of water mask."""
+        return self._client.submit(
+            create_water_mask, self._water_mask_filename, self._dem_bbox
+        )
+
     def _download_rslcs(self) -> Tuple[Future, Future]:
         """Download Sentinel zip files from ASF."""
         # TODO: probably can download a few at a time
@@ -410,12 +385,28 @@ class Workflow(BaseModel):
         for ifg_file in stitched_ifg_files:
             cor_futures.append(self._client.submit(create_cor, ifg_file))
         cor_files = self._client.gather(cor_futures)
+
         return stitched_ifg_files, cor_files
 
     def _unwrap_ifgs(self, ifg_files, cor_files):
         self.unw_dir.mkdir(parents=True, exist_ok=True)
+
+        # Warp the water mask to match the interferogram
+        self._warped_water_mask = self._water_mask_filename.parent / "warped_mask.tif"
+        if self._warped_water_mask.exists():
+            logger.info(f"Mask already exists at {self._warped_water_mask}")
+        else:
+            stitching.warp_to_match(
+                input_file=self._water_mask_filename,
+                match_file=ifg_files[0],
+                output_file=self._warped_water_mask,
+            )
+
         unwrap_futures = []
         unwrapped_files = []
+        # Dask workers will kill the task
+        # https://dask.discourse.group/t/dask-workers-killed-because-of-heartbeat-fail/856/3
+        dask.config.set({"distributed.scheduler.worker-ttl": None})
         for ifg_file, cor_file in zip(ifg_files, cor_files):
             # outfile = ifg_file.with_suffix(".unw")
             outfile = self.unw_dir / ifg_file.name.replace(".int", ".unw")
@@ -427,13 +418,13 @@ class Workflow(BaseModel):
                 unwrap_futures.append(
                     self._client.submit(
                         unwrap.unwrap,
-                        ifg_file,
-                        outfile,
-                        cor_file,
-                        looks=self.looks,
-                        do_tile=False,  # Probably make this an option too
+                        ifg_filename=ifg_file,
+                        corr_filename=cor_file,
+                        unw_filename=outfile,
+                        nlooks=int(np.prod(self.looks)),
+                        mask_file=self._warped_water_mask,
+                        # do_tile=False,  # Probably make this an option too
                         init_method="mst",  # TODO: make this an option?
-                        alt_line_data=False,
                     )
                 )
 
@@ -460,6 +451,7 @@ class Workflow(BaseModel):
 
         dem_fut = self._download_dem()
         burst_db_fut = self._download_burst_db()
+        water_mask_fut = self._download_water_mask()
         rslc_futures = self._download_rslcs()
         # Use .parent of the .result() so that next step depends on the result
         rslc_data_path = rslc_futures.result()[0].parent
@@ -468,7 +460,9 @@ class Workflow(BaseModel):
         )
 
         # Gather the futures once everything is downloaded
-        dem_file, burst_db_file = self._client.gather([dem_fut, burst_db_fut])
+        dem_file, burst_db_file, _ = self._client.gather(
+            [dem_fut, burst_db_fut, water_mask_fut]
+        )
         rslc_files = rslc_futures.result()
         orbit_futures.result()
 

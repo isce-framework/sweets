@@ -1,4 +1,5 @@
 import argparse
+import json
 from datetime import datetime
 from pathlib import Path
 
@@ -13,7 +14,7 @@ def _get_cli_args():
         "Optional: Specify a pre-existing sweets_config.yaml to load"
     )
     cfg_option.add_argument(
-        "--config",
+        "--config-file",
         type=Path,
         help=(
             "Path to a pre-existing sweets_config.yaml file. \nIf not specified, a new"
@@ -131,29 +132,26 @@ def main(args=None):
 
     # importing below for faster CLI startup
     from sweets.core import Workflow
-    from sweets.utils import to_bbox
+    from sweets.utils import to_wkt
 
-    if args.config is not None:
-        if not args.config.exists():
-            raise ValueError(f"Config file {args.config} does not exist")
-        if "yaml" not in args.config.suffix and "yml" not in args.config.suffix:
-            raise ValueError(f"Config file {args.config} is not a yaml file.")
-        workflow = Workflow.from_yaml(args.config)
+    if args.config_file is not None:
+        if not args.config_file.exists():
+            raise ValueError(f"Config file {args.config_file} does not exist")
+        if (
+            "yaml" not in args.config_file.suffix
+            and "yml" not in args.config_file.suffix
+        ):
+            raise ValueError(f"Config file {args.config_file} is not a yaml file.")
+        workflow = Workflow.from_yaml(args.config_file)
     else:
-        if args.bbox is None:
-            if args.geojson is not None:
-                with open(args.geojson.name, "r") as f:
-                    args.bbox = to_bbox(geojson=f.read())
-                args.geojson = None
-            elif args.wkt is not None:
-                if Path(args.wkt).exists():
-                    with open(args.wkt, "r") as f:
-                        args.bbox = to_bbox(wkt=f.read())
-                else:
-                    args.bbox = to_bbox(wkt=args.wkt)
-            else:
+        if args.geojson is not None:
+            with open(args.geojson.name, "r") as f:
+                args.wkt = to_wkt(json.load(f))
+            args.geojson = None
+            if args.wkt is None and args.bbox is None:
                 raise ValueError(
-                    "Must specify one of --bbox, --wkt, or --geojson for AOI bounds."
+                    "Must specify --config, or one of --bbox, --wkt, or --geojson for"
+                    " AOI bounds."
                 )
 
         arg_dict = {k: v for k, v in vars(args).items() if v is not None}
