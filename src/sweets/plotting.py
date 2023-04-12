@@ -12,31 +12,6 @@ from numpy.typing import ArrayLike
 from ._types import Filename
 
 
-def _make_dismph_colors():
-    """Create a cyclic colormap for insar phase."""
-    red, green, blue = [], [], []
-    for i in range(120):
-        red.append(i * 2.13 * 155.0 / 255.0 + 100)
-        green.append((119.0 - i) * 2.13 * 155.0 / 255.0 + 100.0)
-        blue.append(255)
-    for i in range(120):
-        red.append(255)
-        green.append(i * 2.13 * 155.0 / 255.0 + 100.0)
-        blue.append((119 - i) * 2.13 * 155.0 / 255.0 + 100.0)
-    for i in range(120):
-        red.append((119 - i) * 2.13 * 155.0 / 255.0 + 100.0)
-        green.append(255)
-        blue.append(i * 2.13 * 155.0 / 255.0 + 100.0)
-    return np.vstack((red, green, blue))
-
-
-try:
-    plt.get_cmap("dismph")
-except:
-    DISMPH = LinearSegmentedColormap.from_list("dismph", _make_dismph_colors().T / 256)
-    plt.register_cmap(cmap=DISMPH)
-
-
 def plot_ifg(
     img: Optional[ArrayLike] = None,
     filename: Optional[Filename] = None,
@@ -108,12 +83,12 @@ def plot_ifg(
     return fig, ax
 
 
-@lru_cache(maxsize=30)
-def _get_img(filename: Filename):
-    return io.load_gdal(filename)
-
-
-def browse_ifgs(sweets_path: Filename, figsize: Tuple[int, int] = (7, 4), vm: int = 10):
+def browse_ifgs(
+    sweets_path: Filename,
+    figsize: Tuple[int, int] = (7, 4),
+    vm: int = 10,
+    layout="horizontal",
+):
     """Browse interferograms in a sweets directory.
 
     Creates an interactive plot with a slider to browse stitched interferograms.
@@ -126,12 +101,16 @@ def browse_ifgs(sweets_path: Filename, figsize: Tuple[int, int] = (7, 4), vm: in
         Figure size.
     vm : int
         Value used as min/max cutoff for unwrapped phase plot.
+    layout : str
+        Layout of the plot. Can be "horizontal" or "vertical".
     """
     ifg_path = Path(sweets_path) / "interferograms/stitched"
     file_list = sorted(ifg_path.glob("2*.int"))
 
-    unw_path = Path(sweets_path) / "interferograms/unwrapped"
-    unw_list = sorted(unw_path.glob("2*.unw"))
+    unw_list = [
+        Path(str(i).replace("stitched", "unwrapped")).with_suffix(".unw")
+        for i in file_list
+    ]
 
     # imgs = np.stack([io.load_gdal(f) for f in file_list])
     img = _get_img(file_list[0])
@@ -139,8 +118,12 @@ def browse_ifgs(sweets_path: Filename, figsize: Tuple[int, int] = (7, 4), vm: in
     cor = np.abs(img)
     titles = [f.stem for f in file_list]
 
-    ncols = 3 if len(unw_list) > 0 else 2
-    fig, axes = plt.subplots(ncols=ncols, figsize=figsize, sharex=True, sharey=True)
+    subplots_dict = dict(figsize=figsize, sharex=True, sharey=True)
+    if layout == "horizontal":
+        subplots_dict["ncols"] = 3
+    else:
+        subplots_dict["nrows"] = 3
+    fig, axes = plt.subplots(**subplots_dict)
 
     # plot once with colorbar
     plot_ifg(img=phase, add_colorbar=True, ax=axes[0])
@@ -149,7 +132,7 @@ def browse_ifgs(sweets_path: Filename, figsize: Tuple[int, int] = (7, 4), vm: in
     axim_cor = axes[1].imshow(cor, cmap="plasma", vmax=1, vmin=0)
     fig.colorbar(axim_cor, ax=axes[1])
 
-    if ncols == 3:
+    if unw_list[0].exists():
         unw = _get_img(unw_list[0])
         axim_unw = axes[2].imshow(unw, cmap="RdBu", vmin=-vm, vmax=vm)
         fig.colorbar(axim_unw, ax=axes[2])
@@ -160,7 +143,37 @@ def browse_ifgs(sweets_path: Filename, figsize: Tuple[int, int] = (7, 4), vm: in
         cor = np.abs(_get_img(file_list[idx]))
         axim_ifg.set_data(phase)
         axim_cor.set_data(cor)
-        if ncols == 3:
+        if unw_list[idx].exists():
             unw = _get_img(unw_list[idx])
             axim_unw.set_data(unw)
         fig.suptitle(titles[idx])
+
+
+def _make_dismph_colors():
+    """Create a cyclic colormap for insar phase."""
+    red, green, blue = [], [], []
+    for i in range(120):
+        red.append(i * 2.13 * 155.0 / 255.0 + 100)
+        green.append((119.0 - i) * 2.13 * 155.0 / 255.0 + 100.0)
+        blue.append(255)
+    for i in range(120):
+        red.append(255)
+        green.append(i * 2.13 * 155.0 / 255.0 + 100.0)
+        blue.append((119 - i) * 2.13 * 155.0 / 255.0 + 100.0)
+    for i in range(120):
+        red.append((119 - i) * 2.13 * 155.0 / 255.0 + 100.0)
+        green.append(255)
+        blue.append(i * 2.13 * 155.0 / 255.0 + 100.0)
+    return np.vstack((red, green, blue))
+
+
+try:
+    plt.get_cmap("dismph")
+except:
+    DISMPH = LinearSegmentedColormap.from_list("dismph", _make_dismph_colors().T / 256)
+    plt.register_cmap(cmap=DISMPH)
+
+
+@lru_cache(maxsize=30)
+def _get_img(filename: Filename):
+    return io.load_gdal(filename)
