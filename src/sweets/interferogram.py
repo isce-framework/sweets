@@ -35,7 +35,7 @@ def create_ifg(
     bbox: Optional[Tuple[float, float, float, float]] = None,
     overlapping_with: Optional[Path] = None,
 ) -> Path:
-    """Create a multi-looked, normalized interferogram from a VRTInterferogram.
+    """Create a multi-looked, normalized interferogram from GDAL-readable SLCs.
 
     Parameters
     ----------
@@ -48,7 +48,7 @@ def create_ifg(
     looks : Tuple[int, int]
         row looks, column looks.
     overwrite : bool, optional
-        Overwrite existing interferogram, by default False.
+        Overwrite existing interferogram in `outfile`, by default False.
     bbox : Optional[Tuple[float, float, float, float]], optional
         Bounding box to crop the interferogram to, by default None.
         Assumes (lon_min, lat_min, lon_max, lat_max) format.

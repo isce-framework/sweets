@@ -16,13 +16,13 @@ from shapely import geometry, wkt
 
 from ._burst_db import get_burst_db
 from ._geocode_slcs import create_config_files, run_geocode
-from ._interferograms import create_cor, create_ifg
 from ._log import get_log, log_runtime
 from ._netrc import setup_nasa_netrc
 from ._orbit import download_orbits
 from ._types import Filename
 from .dem import create_dem, create_water_mask
 from .download import ASFQuery
+from .interferogram import create_cor, create_ifg
 
 logger = get_log(__name__)
 
