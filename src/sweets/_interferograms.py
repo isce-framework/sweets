@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 import argparse
 import warnings
 from pathlib import Path
@@ -11,7 +12,6 @@ import rioxarray
 from compass.utils.helpers import bbox_to_utm
 from dask.distributed import Client
 from dolphin import utils
-from dolphin.interferogram import VRTInterferogram
 from dolphin.io import DEFAULT_HDF5_OPTIONS
 
 from ._log import get_log, log_runtime
@@ -26,7 +26,10 @@ logger = get_log(__name__)
 
 
 def create_ifg(
-    vrt_ifg: VRTInterferogram,
+    ref_slc: Filename,
+    sec_slc: Filename,
+    outfile: Filename,
+    *,
     looks: Tuple[int, int],
     overwrite: bool = False,
     bbox: Optional[Tuple[float, float, float, float]] = None,
@@ -36,8 +39,12 @@ def create_ifg(
 
     Parameters
     ----------
-    vrt_ifg : VRTInterferogram
-        Virtual interferogram from `dolphin` containing single-looked ifg data.
+    ref_slc : Filename
+        Path to reference SLC.
+    sec_slc : Filename
+        Path to secondary SLC.
+    outfile : Filename
+        Path to output file.
     looks : Tuple[int, int]
         row looks, column looks.
     overwrite : bool, optional
@@ -57,22 +64,28 @@ def create_ifg(
     Path
         Path to Geotiff file containing the multi-looked, normalized interferogram.
     """
-    # da = rioxarray.open_rasterio(fin3, chunks=(1, 128*10, 128*10)).sel(band=1)
-    # da_sub = da.sel(x=slice(bbox[0], bbox[2]), y=slice(bbox[3], bbox[1]))
+    outfile = Path(outfile)
+    if outfile.exists():
+        if not overwrite:
+            logger.debug(f"Skipping {outfile} because it already exists.")
+            return outfile
+        else:
+            logger.info(f"Overwriting {outfile} because overwrite=True.")
+            outfile.unlink()
 
     dask_chunks = (1, 128 * 10, 128 * 10)
-    da_ref = rioxarray.open_rasterio(vrt_ifg.ref_slc, chunks=dask_chunks).sel(band=1)
-    da_sec = rioxarray.open_rasterio(vrt_ifg.sec_slc, chunks=dask_chunks).sel(band=1)
+    da_ref = rioxarray.open_rasterio(ref_slc, chunks=dask_chunks).sel(band=1)
+    da_sec = rioxarray.open_rasterio(sec_slc, chunks=dask_chunks).sel(band=1)
     bb_utm = None
     if bbox is not None:
         bb_target = bbox_to_utm(bbox, epsg_src=4326, epsg_dst=da_ref.rio.crs.to_epsg())
         bb_utm = get_overlapping_bounds(bb_target, da_ref.rio.bounds())
     elif overlapping_with:
         bb_utm = get_intersection_bounds(
-            overlapping_with, vrt_ifg.ref_slc, epsg_code=da_ref.rio.crs.to_epsg()
+            overlapping_with, ref_slc, epsg_code=da_ref.rio.crs.to_epsg()
         )
     if bb_utm is not None:
-        # (-102.9406965, 31.3908, -102.3406965, 31.9908)
+        # (left, bottom, right, top) -> (left, right), (top, bottom)
         da_ref = da_ref.sel(
             x=slice(bb_utm[0], bb_utm[2]), y=slice(bb_utm[3], bb_utm[1])
         )
@@ -80,24 +93,7 @@ def create_ifg(
             x=slice(bb_utm[0], bb_utm[2]), y=slice(bb_utm[3], bb_utm[1])
         )
 
-    # ref_slc = utils._get_path_from_gdal_str(vrt_ifg.ref_slc)
-    # sec_slc = utils._get_path_from_gdal_str(vrt_ifg.sec_slc)
-    # suffix = ".int" if to_binary else ".h5"
-
-    suffix = ".tif"
-    outfile = vrt_ifg.path.with_suffix(suffix)
-    if outfile.exists():
-        if not overwrite:
-            logger.debug(f"Skipping {outfile} because it already exists.")
-            return outfile
-        else:
-            logger.debug(f"Overwriting {outfile} because overwrite=True.")
-            outfile.unlink()
-
     logger.info(f"Creating {looks[0]}x{looks[1]} multi-looked interferogram: {outfile}")
-    # with h5py.File(ref_slc, "r") as f, h5py.File(sec_slc, "r") as g:
-    #     da_ref = da.from_array(f[OPERA_DATASET_NAME])
-    #     da_sec = da.from_array(g[OPERA_DATASET_NAME])
     # PerformanceWarning: Reshaping is producing a large chunk...
     with dask.config.set(**{"array.slicing.split_large_chunks": False}):
         # _form_ifg(da_ref, da_sec, looks, outfile, ref_filename=vrt_ifg.ref_slc)

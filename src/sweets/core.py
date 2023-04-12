@@ -342,9 +342,16 @@ class Workflow(YamlModel):
             )
             logger.info(f"{len(list(outdir.glob('*.tif')))} existing interferograms")
             ifg_futures = []
+
             for vrt_ifg in network.ifg_list:
+                outfile = vrt_ifg.path.with_suffix(".tif")
                 ifg_fut = self._client.submit(
-                    create_ifg, vrt_ifg, self.looks, bbox=self.bbox
+                    create_ifg,
+                    vrt_ifg.ref_slc,
+                    vrt_ifg.sec_slc,
+                    outfile,
+                    looks=self.looks,
+                    bbox=self.bbox,
                 )
                 #     overlapping_with=dem_file,
 
