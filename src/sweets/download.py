@@ -23,7 +23,7 @@ import zipfile
 from datetime import date, datetime
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Tuple
 from urllib.parse import urlencode
 
 import rasterio as rio
@@ -87,6 +87,10 @@ class ASFQuery(BaseModel):
         choices=["ASCENDING", "DESCENDING"],
         description="Ascending or descending",
     )
+    asf_frames: Optional[Tuple[int, int]] = Field(
+        None,
+        description="(start, end) range of ASF frames.",
+    )
     unzip: bool = Field(
         True,
         description="Unzip downloaded files into .SAFE directories",
@@ -147,6 +151,9 @@ class ASFQuery(BaseModel):
 
     def _form_url(self) -> str:
         """Form the url for the ASF query."""
+        frame_str = (
+            f"{self.asf_frames[0]}-{self.asf_frames[1]}" if self.asf_frames else None
+        )
         params = dict(
             # bbox is getting deprecated in favor of intersectsWith
             # https://docs.asf.alaska.edu/api/keywords/#geospatial-parameters
@@ -160,6 +167,7 @@ class ASFQuery(BaseModel):
             output="geojson",
             platform="S1",  # Currently only supporting S1 right now
             beamMode="IW",
+            frame=frame_str,
         )
         params = {k: v for k, v in params.items() if v is not None}
         base_url = "https://api.daac.asf.alaska.edu/services/search/param?{params}"

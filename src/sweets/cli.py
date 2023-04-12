@@ -60,6 +60,16 @@ def _get_cli_args():
         type=int,
         help="Limit to one path / relativeOrbit",
     )
+    aoi.add_argument(
+        "--frames",
+        type=int,
+        nargs=2,
+        metavar=("start_frame", "end_frame"),
+        help=(
+            "Limit to a range of frames (e.g. --frames 1 10). Frame numbers come from"
+            " ASF website"
+        ),
+    )
 
     optional = parser.add_argument_group("optional arguments")
     optional.add_argument(

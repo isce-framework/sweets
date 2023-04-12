@@ -158,6 +158,7 @@ class Workflow(YamlModel):
             start=values.get("start"),
             end=values.get("end"),
             relativeOrbit=track,
+            asf_frames=values.get("frames"),
         )
         if "orbit_dir" in values:
             # only set if they've passed one
@@ -336,6 +337,7 @@ class Workflow(YamlModel):
                 max_temporal_baseline=self.max_temporal_baseline,
                 max_bandwidth=self.max_bandwidth,
                 subdataset=OPERA_DATASET_NAME,
+                write=False,
             )
             logger.info(
                 f"{len(network)} interferograms to create for burst {burst} in {outdir}"
