@@ -136,7 +136,8 @@ class ASFQuery(BaseModel):
             elif values.get("wkt_file") is not None:
                 with open(values["wkt_file"]) as f:
                     values["wkt"] = wkt.load(f)
-            raise ValueError("Must provide a bbox or a dem or wkt")
+            else:
+                raise ValueError("Must provide a bbox or a dem or wkt")
 
         # Check that end is after start
         if values.get("start") is not None and values.get("end") is not None:
