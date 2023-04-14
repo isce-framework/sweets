@@ -1,11 +1,13 @@
+from __future__ import annotations
+
 import os
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any, Optional, Tuple
+from typing import Any, Optional
 
 import dask.config
 import numpy as np
-from dask.distributed import Client, Future
+from dask.distributed import Client, Future, wait
 from dateutil.parser import parse
 from dolphin import io, stitching, unwrap
 from dolphin.interferogram import Network
@@ -36,7 +38,7 @@ class Workflow(YamlModel):
     )
 
     # Steps
-    bbox: Tuple[float, ...] = Field(
+    bbox: tuple[float, ...] = Field(
         None,
         description=(
             "lower left lon, lat, upper right format e.g."
@@ -80,7 +82,7 @@ class Workflow(YamlModel):
 
     # Interferogram network
     # TODO: make into separate class
-    looks: Tuple[int, int] = Field(
+    looks: tuple[int, int] = Field(
         (6, 12),
         description="Row looks, column looks. Default is 6, 12 (for 60x60 m).",
     )
@@ -268,10 +270,25 @@ class Workflow(YamlModel):
             create_water_mask, self._water_mask_filename, self._dem_bbox
         )
 
-    def _download_rslcs(self) -> Tuple[Future, Future]:
+    def _download_rslcs(self, skip_if_exists: bool = True) -> Future:
         """Download Sentinel zip files from ASF."""
-        # TODO: probably can download a few at a time
         self._log_dir.mkdir(parents=True, exist_ok=True)
+        # The final name will depend on if we're unzipping or not
+        ext = ".SAFE" if self.asf_query.unzip else ".zip"
+        existing_files = sorted(self.asf_query.out_dir.glob("S*" + ext))
+        if existing_files and skip_if_exists:
+            logger.info(
+                f"Found {len(existing_files)} existing {ext} files in"
+                f" {self.asf_query.out_dir}. Skipping download."
+            )
+            return self._client.submit(lambda: existing_files)
+
+        # If we didn't have any, we need to download them
+        # TODO: how should we handl partial/failed downloads... do we really
+        # want to re-search for them each time?
+        # Maybe there can be a "force" flag to re-download everything?
+        # or perhaps an API search, then if the number matches, we can skip
+        # rather than let aria2c start and do the checksums
         rslc_futures = self._client.submit(
             self.asf_query.download, log_dir=self._log_dir
         )
@@ -279,8 +296,6 @@ class Workflow(YamlModel):
 
     @log_runtime
     def _geocode_slcs(self, slc_files, dem_file, burst_db_file):
-        # TODO: unzip, probably in download
-        # any reason to do this async?
         self._log_dir.mkdir(parents=True, exist_ok=True)
         compass_cfg_files = create_config_files(
             slc_dir=slc_files[0].parent,
@@ -469,11 +484,10 @@ class Workflow(YamlModel):
         )
 
         # Gather the futures once everything is downloaded
-        dem_file, burst_db_file, _ = self._client.gather(
-            [dem_fut, burst_db_fut, water_mask_fut]
-        )
+        dem_file, burst_db_file = self._client.gather([dem_fut, burst_db_fut])
         rslc_files = rslc_futures.result()
-        orbit_futures.result()
+        wait(water_mask_fut)
+        wait(orbit_futures)
 
         gslc_files = self._geocode_slcs(rslc_files, dem_file, burst_db_file)
         ifg_path_list = self._create_burst_interferograms(gslc_files)
