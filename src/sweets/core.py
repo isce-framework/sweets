@@ -11,7 +11,7 @@ from dolphin import io, stitching, unwrap
 from dolphin.interferogram import Network
 from dolphin.workflows import group_by_burst
 from dolphin.workflows.config import OPERA_DATASET_NAME, YamlModel
-from pydantic import Extra, Field, PrivateAttr, root_validator, validator
+from pydantic import Extra, Field, root_validator, validator
 from shapely import geometry, wkt
 
 from ._burst_db import get_burst_db
@@ -22,7 +22,7 @@ from ._orbit import download_orbits
 from ._types import Filename
 from .dem import create_dem, create_water_mask
 from .download import ASFQuery
-from .interferogram import create_cor, create_ifg
+from .interferogram import InterferogramOptions, create_cor, create_ifg
 
 logger = get_log(__name__)
 
@@ -35,48 +35,27 @@ class Workflow(YamlModel):
         description="Root of working directory for processing.",
     )
 
-    # Steps
     bbox: tuple[float, ...] = Field(
         None,
         description=(
-            "lower left lon, lat, upper right format e.g."
-            " bbox=(-150.2,65.0,-150.1,65.5)"
+            "Area of interest: (left, bottom, right, top) longitude/latitude "
+            "e.g. `bbox=(-150.2,65.0,-150.1,65.5)`"
         ),
     )
     wkt: Optional[str] = Field(
         None,
         description="Well Known Text (WKT) string (overrides bbox)",
     )
-    track: int = Field(
-        None,
-        description="Path number",
-    )
-    data_dir: Path = Field(
-        Path("data"),
-        description="Directory to store data downloaded from ASF.",
-    )
+
     orbit_dir: Path = Field(
         Path("orbits"),
         description="Directory for orbit files.",
     )
-    asf_query: ASFQuery = Field(
-        None,
-        description="ASF query parameters.",
-    )
 
-    # Interferogram network
-    # TODO: make into separate class
-    looks: tuple[int, int] = Field(
-        (6, 12),
-        description="Row looks, column looks. Default is 6, 12 (for 60x60 m).",
-    )
-    max_bandwidth: Optional[int] = Field(
-        4,
-        description="Form interferograms using the nearest n- dates",
-    )
-    max_temporal_baseline: Optional[float] = Field(
-        None,
-        description="Alt. to max_bandwidth: maximum temporal baseline in days.",
+    asf_query: ASFQuery
+    interferogram_options: InterferogramOptions = Field(
+        default_factory=InterferogramOptions,
+        description="Options for interferogram creation.",
     )
     do_unwrap: bool = Field(
         True,
@@ -100,16 +79,39 @@ class Workflow(YamlModel):
         description="Overwrite existing files.",
     )
 
-    # Internal attributes
-    _client: Client = PrivateAttr()
-    # Extra logging from places that don't have access to the logger
-    _log_dir: Path = PrivateAttr()
-
     class Config:
         extra = Extra.allow  # Let us set arbitrary attributes later
 
+    # Note: this root_validator's `values` only contains the fields that have
+    # been passed in by a user.
+    @root_validator(pre=True)
+    def _check_unset_dirs(cls, values):
+        if "asf_query" not in values:
+            values["asf_query"] = {}
+        # Orbits dir and data dir can be outside the working dir if someone
+        # wants to point to existing data.
+        # So we only want to move them inside the working dir if they weren't
+        # explicitly set.
+        values["_orbit_dir_is_set"] = "orbit_dir" in values
+        values["_data_dir_is_set"] = "out_dir" in values["asf_query"]
+
+        # also if they passed a wkt to the outer constructor, we need to
+        # pass through to the ASF query
+        values["asf_query"]["wkt"] = values.get("asf_query", {}).get(
+            "wkt"
+        ) or values.get("wkt")
+        values["asf_query"]["bbox"] = values.get("asf_query", {}).get(
+            "bbox"
+        ) or values.get("bbox")
+        # sync the other way too:
+        values["wkt"] = values["asf_query"]["wkt"]
+        values["bbox"] = values["asf_query"]["bbox"]
+        if not values.get("bbox") and not values.get("wkt"):
+            raise ValueError("Must specify either `bbox` or `wkt`")
+        return values
+
     # expanduser and resolve each of the dirs:
-    @validator("work_dir", "data_dir", "orbit_dir", pre=True)
+    @validator("work_dir", "orbit_dir", pre=True)
     def _expand_dirs(cls, v):
         return Path(v).expanduser().resolve()
 
@@ -122,74 +124,25 @@ class Workflow(YamlModel):
                 raise ValueError(f"Invalid WKT string: {e}")
         return v
 
-    @validator("asf_query", pre=True, always=True)
-    def _create_query(cls, v, values):
-        if v is not None:
-            return v
-
-        bbox = values.get("bbox")
-        wkt = values.get("wkt")
-        track = values.get("track")
-        if track is None:
-            raise ValueError("Must specify either `track`, or full `asf_query`")
-
-        asf_params = dict(
-            bbox=bbox,
-            wkt=wkt,
-            start=values.get("start"),
-            end=values.get("end"),
-            relativeOrbit=track,
-            frames=values.get("frames"),
-        )
-        if "orbit_dir" in values:
-            # only set if they've passed one
-            asf_params["orbit_dir"] = values["orbit_dir"]
-        return ASFQuery(**asf_params)
-
-    @validator("max_temporal_baseline", pre=True)
-    def _check_max_temporal_baseline(cls, v, values):
-        """Make sure they didn't specify max_bandwidth and max_temporal_baseline."""
-        if v is None:
-            return v
-        max_bandwidth = values.get("max_bandwidth")
-        if max_bandwidth == cls.schema()["properties"]["max_bandwidth"]["default"]:
-            values["max_bandwidth"] = None
-        else:
-            raise ValueError(
-                "Cannot specify both max_bandwidth and max_temporal_baseline"
-            )
-        return v
-
-    # Note: this root_validator's `values` only contains the fields that have
-    # been set.
-    @root_validator(pre=True)
-    def _check_unset_dirs(cls, values):
-        # Orbits dir and data dir can be outside the working dir if someone
-        # wants to point to existing data.
-        # So we only want to move them inside the working dir if they weren't
-        # explicitly set.
-        values["_orbit_dir_is_set"] = "orbit_dir" in values
-        values["_data_dir_is_set"] = "data_dir" in values
-        return values
-
+    # while this one has all the fields
     @root_validator()
     def _move_inside_workdir(cls, values):
         if not values["_orbit_dir_is_set"]:
             values["orbit_dir"] = (values["work_dir"] / values["orbit_dir"]).resolve()
         if not values["_data_dir_is_set"]:
-            values["data_dir"] = (values["work_dir"] / values["data_dir"]).resolve()
+            values["asf_query"].out_dir = (
+                values["work_dir"] / values["asf_query"].out_dir
+            ).resolve()
 
         return values
 
     @root_validator()
     def _set_bbox_and_wkt(cls, values):
-        # If they've specified a bbox, we need to set the wkt
+        # If they've specified a bbox, set the wkt
         if not values.get("bbox"):
-            if not values.get("wkt"):
-                raise ValueError("Must specify either `bbox` or `wkt`")
-            else:
-                values["bbox"] = wkt.loads(values["wkt"]).bounds
+            values["bbox"] = wkt.loads(values["wkt"]).bounds
         else:
+            # otherwise, make WKT just a 5 point polygon
             values["wkt"] = wkt.dumps(geometry.box(*values["bbox"]))
         return values
 
@@ -203,6 +156,15 @@ class Workflow(YamlModel):
         """Load the workflow configuration."""
         logger.info(f"Loading config from {config_file}")
         return cls.from_yaml(config_file)
+
+    # Override the constructor to allow recursively construct without validation
+    @classmethod
+    def construct(cls, **kwargs):
+        if "asf_query" not in kwargs:
+            kwargs["asf_query"] = ASFQuery._construct_empty()
+        return super().construct(
+            **kwargs,
+        )
 
     def __init__(self, start_dask=True, **data: Any) -> None:
         super().__init__(**data)
@@ -219,7 +181,7 @@ class Workflow(YamlModel):
             self._client = None
 
         # Track the directories that need to be created at start of workflow
-        self._log_dir = self.work_dir / "logs"
+        self.log_dir = self.work_dir / "logs"
         self.gslc_dir = self.work_dir / "gslcs"
         self.ifg_dir = self.work_dir / "interferograms"
         self.stitched_ifg_dir = self.ifg_dir / "stitched"
@@ -251,7 +213,7 @@ class Workflow(YamlModel):
 
     def _download_rslcs(self, skip_if_exists: bool = True) -> Future:
         """Download Sentinel zip files from ASF."""
-        self._log_dir.mkdir(parents=True, exist_ok=True)
+        self.log_dir.mkdir(parents=True, exist_ok=True)
         # The final name will depend on if we're unzipping or not
         ext = ".SAFE" if self.asf_query.unzip else ".zip"
         existing_files = sorted(self.asf_query.out_dir.glob("S*" + ext))
@@ -269,13 +231,13 @@ class Workflow(YamlModel):
         # or perhaps an API search, then if the number matches, we can skip
         # rather than let aria2c start and do the checksums
         rslc_futures = self._client.submit(
-            self.asf_query.download, log_dir=self._log_dir
+            self.asf_query.download, log_dir=self.log_dir
         )
         return rslc_futures
 
     @log_runtime
     def _geocode_slcs(self, slc_files, dem_file, burst_db_file):
-        self._log_dir.mkdir(parents=True, exist_ok=True)
+        self.log_dir.mkdir(parents=True, exist_ok=True)
         compass_cfg_files = create_config_files(
             slc_dir=slc_files[0].parent,
             burst_db_file=burst_db_file,
@@ -310,7 +272,7 @@ class Workflow(YamlModel):
                     self._client.submit(
                         run_geocode,
                         cfg_file,
-                        log_dir=self._log_dir,
+                        log_dir=self.log_dir,
                     )
                 )
         gslc_files.extend(self._client.gather(gslc_futures))

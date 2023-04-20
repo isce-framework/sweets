@@ -26,10 +26,10 @@ from pathlib import Path
 from typing import Any, List, Optional, Tuple
 from urllib.parse import urlencode
 
-import rasterio as rio
 import requests
 from dateutil.parser import parse
-from pydantic import BaseModel, Extra, Field, PrivateAttr, root_validator, validator
+from dolphin.workflows.config import YamlModel
+from pydantic import Extra, Field, PrivateAttr, root_validator, validator
 from shapely import wkt
 from shapely.geometry import box
 
@@ -42,7 +42,7 @@ logger = get_log(__name__)
 DIRNAME = os.path.dirname(os.path.abspath(__file__))
 
 
-class ASFQuery(BaseModel):
+class ASFQuery(YamlModel):
     """Class holding the Sentinel-1 ASF query parameters."""
 
     out_dir: Path = Field(
@@ -59,10 +59,6 @@ class ASFQuery(BaseModel):
     wkt: Optional[str] = Field(
         None,
         description="Well Known Text (WKT) string",
-    )
-    dem: Optional[str] = Field(
-        None,
-        description="Name of DEM filename (will parse bbox)",
     )
     wkt_file: Optional[Path] = Field(
         None,
@@ -101,10 +97,6 @@ class ASFQuery(BaseModel):
         True,
         description="Unzip downloaded files into .SAFE directories",
     )
-    orbit_dir: Path = Field(
-        Path("orbits"),
-        description="Directory for orbit files",
-    )
     _url: str = PrivateAttr()
 
     class Config:
@@ -137,13 +129,11 @@ class ASFQuery(BaseModel):
         if not values.get("wkt"):
             if values.get("bbox") is not None:
                 values["wkt"] = box(*values["bbox"]).wkt
-            elif values.get("dem") is not None:
-                values["wkt"] = cls._get_dem_bbox(values["dem"])
             elif values.get("wkt_file") is not None:
                 with open(values["wkt_file"]) as f:
                     values["wkt"] = wkt.load(f)
             else:
-                raise ValueError("Must provide a bbox or a dem or wkt")
+                raise ValueError("Must provide a bbox or wkt")
 
         # Check that end is after start
         if values.get("start") is not None and values.get("end") is not None:
@@ -226,11 +216,6 @@ class ASFQuery(BaseModel):
             file_names = unzip_all(self.out_dir, out_dir=self.out_dir)
         return file_names
 
-    @staticmethod
-    def _get_dem_bbox(fname):
-        with rio.open(fname) as ds:
-            return wkt.dumps(box(ds.bounds))
-
 
 @lru_cache(maxsize=10)
 def _query_url(url: str) -> dict:
@@ -260,10 +245,6 @@ def cli():
         help=(
             "Bounding box of area of interest  (e.g. --bbox -106.1 30.1 -103.1 33.1 ). "
         ),
-    )
-    p.add_argument(
-        "--dem",
-        help="Filename of a (gdal-readable) DEM",
     )
     p.add_argument(
         "--wkt-file",
@@ -300,10 +281,6 @@ def cli():
         help="display available data in format of --query-file, no download",
     )
     args = p.parse_args()
-    if all(vars(args)[item] for item in ("bbox", "dem", "absoluteOrbit", "flightLine")):
-        raise ValueError(
-            "Need either --bbox or --dem options without flightLine/absoluteOrbit"
-        )
 
     q = ASFQuery(**vars(args))
     if args.query_only:
