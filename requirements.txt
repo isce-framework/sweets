@@ -4,7 +4,6 @@
 # SYNC THIS WITH conda-env
 # These are the packages easily-installable through pip
 # gdal>=3.3
-backoff>=1.10 # actually needed by isce but didnt get installed
 compass @ git+https://github.com/opera-adt/COMPASS.git
 dask>=2022.6.0
 dolphin @ git+https://github.com/opera-adt/dolphin.git

@@ -1,14 +1,12 @@
 from __future__ import annotations
 
 import os
-from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Optional
 
 import dask.config
 import numpy as np
 from dask.distributed import Client, Future, wait
-from dateutil.parser import parse
 from dolphin import io, stitching, unwrap
 from dolphin.interferogram import Network
 from dolphin.workflows import group_by_burst
@@ -49,20 +47,6 @@ class Workflow(YamlModel):
         None,
         description="Well Known Text (WKT) string (overrides bbox)",
     )
-    start: datetime = Field(
-        None,
-        description=(
-            "Starting time for search. Can be datetime or string (goes to"
-            " `dateutil.parse`)"
-        ),
-    )
-    end: datetime = Field(
-        default_factory=datetime.now,
-        description=(
-            "Ending time for search. Can be datetime or string (goes to"
-            " `dateutil.parse`)"
-        ),
-    )
     track: int = Field(
         None,
         description="Path number",
@@ -93,6 +77,10 @@ class Workflow(YamlModel):
     max_temporal_baseline: Optional[float] = Field(
         None,
         description="Alt. to max_bandwidth: maximum temporal baseline in days.",
+    )
+    do_unwrap: bool = Field(
+        True,
+        description="Run the unwrapping step for all interferograms.",
     )
 
     n_workers: int = Field(
@@ -134,15 +122,6 @@ class Workflow(YamlModel):
                 raise ValueError(f"Invalid WKT string: {e}")
         return v
 
-    @validator("start", "end", pre=True)
-    def _parse_date(cls, v):
-        if isinstance(v, datetime):
-            return v
-        elif isinstance(v, date):
-            # Convert to datetime
-            return datetime.combine(v, datetime.min.time())
-        return parse(v)
-
     @validator("asf_query", pre=True, always=True)
     def _create_query(cls, v, values):
         if v is not None:
@@ -160,7 +139,7 @@ class Workflow(YamlModel):
             start=values.get("start"),
             end=values.get("end"),
             relativeOrbit=track,
-            asf_frames=values.get("frames"),
+            frames=values.get("frames"),
         )
         if "orbit_dir" in values:
             # only set if they've passed one
@@ -284,7 +263,7 @@ class Workflow(YamlModel):
             return self._client.submit(lambda: existing_files)
 
         # If we didn't have any, we need to download them
-        # TODO: how should we handl partial/failed downloads... do we really
+        # TODO: how should we handle partial/failed downloads... do we really
         # want to re-search for them each time?
         # Maybe there can be a "force" flag to re-download everything?
         # or perhaps an API search, then if the number matches, we can skip
@@ -413,8 +392,12 @@ class Workflow(YamlModel):
         return stitched_ifg_files, cor_files
 
     def _unwrap_ifgs(self, ifg_files, cor_files):
-        self.unw_dir.mkdir(parents=True, exist_ok=True)
+        unwrapped_files = []
+        if not self.do_unwrap:
+            logger.info("Skipping unwrapping")
+            return unwrapped_files
 
+        self.unw_dir.mkdir(parents=True, exist_ok=True)
         # Warp the water mask to match the interferogram
         self._warped_water_mask = self._water_mask_filename.parent / "warped_mask.tif"
         if self._warped_water_mask.exists():
@@ -427,7 +410,6 @@ class Workflow(YamlModel):
             )
 
         unwrap_futures = []
-        unwrapped_files = []
         # Dask workers will kill the task
         # https://dask.discourse.group/t/dask-workers-killed-because-of-heartbeat-fail/856/3
         dask.config.set({"distributed.scheduler.worker-ttl": None})

@@ -70,11 +70,17 @@ class ASFQuery(BaseModel):
     )
     start: datetime = Field(
         None,
-        description="Starting datetime for search.",
+        description=(
+            "Starting time for search. Can be datetime or string (goes to"
+            " `dateutil.parse`)"
+        ),
     )
     end: datetime = Field(
-        None,
-        description="Ending datetime for search.",
+        default_factory=datetime.now,
+        description=(
+            "Ending time for search. Can be datetime or string (goes to"
+            " `dateutil.parse`)"
+        ),
     )
     track: Optional[int] = Field(
         None,
@@ -87,7 +93,7 @@ class ASFQuery(BaseModel):
         choices=["ASCENDING", "DESCENDING"],
         description="Ascending or descending",
     )
-    asf_frames: Optional[Tuple[int, int]] = Field(
+    frames: Optional[Tuple[int, int]] = Field(
         None,
         description="(start, end) range of ASF frames.",
     )
@@ -152,9 +158,7 @@ class ASFQuery(BaseModel):
 
     def _form_url(self) -> str:
         """Form the url for the ASF query."""
-        frame_str = (
-            f"{self.asf_frames[0]}-{self.asf_frames[1]}" if self.asf_frames else None
-        )
+        frame_str = f"{self.frames[0]}-{self.frames[1]}" if self.frames else None
         params = dict(
             # bbox is getting deprecated in favor of intersectsWith
             # https://docs.asf.alaska.edu/api/keywords/#geospatial-parameters

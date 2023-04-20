@@ -22,7 +22,7 @@ POL = "co-pol"
 
 
 def run_geocode(
-    run_config_path: Filename, compress: bool = True, log_dir: Filename = Path(".")
+    run_config_path: Filename, compress: bool = False, log_dir: Filename = Path(".")
 ) -> Path:
     """Run a single geocoding workflow on an SLC.
 
@@ -186,6 +186,6 @@ def create_config_files(
         y_spac=y_posting,
         using_zipped=using_zipped,
         enable_corrections=True,
-        enable_metadata=True,
+        enable_metadata=False,
     )
     return sorted((Path(out_dir) / "runconfigs").glob("*"))
