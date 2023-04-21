@@ -129,7 +129,7 @@ class Workflow(YamlModel):
     def _move_inside_workdir(cls, values):
         if not values["_orbit_dir_is_set"]:
             values["orbit_dir"] = (values["work_dir"] / values["orbit_dir"]).resolve()
-        if not values["_data_dir_is_set"]:
+        if not values["_data_dir_is_set"] and "asf_query" in values:
             values["asf_query"].out_dir = (
                 values["work_dir"] / values["asf_query"].out_dir
             ).resolve()

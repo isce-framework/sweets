@@ -1,30 +1,37 @@
 import argparse
-import json
-from datetime import datetime
+import sys
 from pathlib import Path
 
 
-def _get_cli_args():
+def _get_cli_args() -> dict:
     parser = argparse.ArgumentParser(
         prog=__package__,
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser._action_groups.pop()
-    cfg_option = parser.add_argument_group(
-        "Optional: Specify a pre-existing sweets_config.yaml to load"
+    subparsers = parser.add_subparsers()
+    config_parser = subparsers.add_parser(
+        "config",
+        help="Create a sweets_config.yaml file",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    cfg_option.add_argument(
-        "--config-file",
-        type=Path,
+    config_parser._action_groups.pop()
+
+    base = config_parser.add_argument_group()
+    base.add_argument(
+        "--save-empty",
+        action="store_true",
+        help="Print an empty config file to `outfile",
+    )
+    base.add_argument(
+        "-o",
+        "--outfile",
         help=(
-            "Path to a pre-existing sweets_config.yaml file. \nIf not specified, a new"
-            " config will be created from the command line arguments."
+            "Path to save the config file to. \nIf not specified, will save to"
+            " `sweets_config.yaml` in the current directory."
         ),
+        default="sweets_config.yaml",
     )
-    aoi = parser.add_argument_group(
-        "(For new configs) Required args: specify area of interest"
-    )
-    aoi.add_argument(
+    base.add_argument(
         "-b",
         "--bbox",
         nargs=4,
@@ -35,7 +42,7 @@ def _get_cli_args():
             "  (e.g. --bbox -106.1 30.1 -103.1 33.1 ). \n"
         ),
     )
-    aoi.add_argument(
+    base.add_argument(
         "--wkt",
         help=(
             "Alternate to bounding box specification: \nWKT string (or file containing"
@@ -43,22 +50,24 @@ def _get_cli_args():
             " a string polygon, you must enclose in quotes."
         ),
     )
+    aoi = config_parser.add_argument_group(
+        title="asf_query",
+        description="Arguments specifying the area of interest for the S1 data query",
+    )
     aoi.add_argument(
-        "--geojson",
-        type=argparse.FileType(),
-        help=(
-            "Alternate to bounding box specification: \n"
-            "File containing the geojson object for DEM bounds"
-        ),
+        "--track",
+        "--relativeOrbit",
+        dest="relativeOrbit",
+        type=int,
+        help="Required: the relative orbit/track",
     )
     aoi.add_argument(
         "--start",
         help="Starting date for query (recommended: YYYY-MM-DD)",
     )
     aoi.add_argument(
-        "--track",
-        type=int,
-        help="Limit to one path / relativeOrbit",
+        "--end",
+        help="Ending date for query (recommended: YYYY-MM-DD). Defaults to today.",
     )
     aoi.add_argument(
         "--frames",
@@ -70,13 +79,16 @@ def _get_cli_args():
             " ASF website"
         ),
     )
-
-    optional = parser.add_argument_group("optional arguments")
-    optional.add_argument(
-        "--end",
-        help="Ending date for query (recommended: YYYY-MM-DD). Defaults to today.",
+    aoi.add_argument(
+        "--data-dir",
+        help=(
+            "Directory to store data in (or directory containing existing downloads)."
+            " If None, will store in `data/` "
+        ),
     )
-    optional.add_argument(
+
+    interferogram_options = config_parser.add_argument_group("interferogram_options")
+    interferogram_options.add_argument(
         "--looks",
         type=int,
         nargs=2,
@@ -88,43 +100,33 @@ def _get_cli_args():
             " posting, so default looks of 6x12 are 60m x 60m."
         ),
     )
-    optional.add_argument(
+    interferogram_options.add_argument(
         "-t",
         "--max-temporal-baseline",
         type=int,
-        default=None,
         help="Maximum temporal baseline (in days) to consider for interferograms.",
     )
-    optional.add_argument(
+    interferogram_options.add_argument(
         "--max-bandwidth",
         type=int,
         default=4,
         help="Alternative to temporal baseline: form the nearest n- ifgs.",
     )
-    # Allow them to specify the data directory, or the orbit directory
-    optional.add_argument(
-        "--data-dir",
-        help=(
-            "Directory to store data in (or directory containing existing downloads)."
-            " If None, will store in `data/` "
-        ),
-    )
-    optional.add_argument(
+    base.add_argument(
         "--orbit-dir",
         help=(
             "Directory to store orbit files in (or directory containing existing"
             " orbits). If None, will store in `orbits/` "
         ),
     )
-
-    optional.add_argument(
+    base.add_argument(
         "-nw",
         "--n-workers",
         type=int,
         default=4,
         help="Number of dask workers (processes) to use for parallel processing.",
     )
-    optional.add_argument(
+    base.add_argument(
         "-tpw",
         "--threads-per-worker",
         type=int,
@@ -133,39 +135,80 @@ def _get_cli_args():
             "For each workers, number of threads to use (e.g. in numpy multithreading)."
         ),
     )
-    return parser.parse_args()
+    config_parser.set_defaults(func=create_config)
+
+    # ##########################
+    run_parser = subparsers.add_parser(
+        "run",
+        help="Run the workflow using a sweets_config.yaml file",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+
+    run_parser.add_argument(
+        "config_file",
+        type=Path,
+        help=(
+            "Path to a pre-existing sweets_config.yaml file. \nIf not specified, a new"
+            " config will be created from the command line arguments."
+        ),
+    )
+    run_parser.set_defaults(func=run_workflow)
+
+    arg_groups = {}
+
+    args = parser.parse_args()
+    arg_dict = vars(args)
+    if arg_dict["func"].__name__ == "create_config":
+        for group in config_parser._action_groups:
+            # skip positional arguments
+            if group.title == "positional arguments":
+                continue
+            group_dict = {
+                a.dest: getattr(args, a.dest, None) for a in group._group_actions
+            }
+            # remove None values
+            group_dict = {k: v for k, v in group_dict.items() if v is not None}
+            if group.title:
+                arg_groups[group.title] = group_dict
+            else:
+                arg_groups.update(group_dict)  # type: ignore
+        arg_groups["func"] = arg_dict["func"]
+        return arg_groups
+    else:
+        return arg_dict
+
+
+def run_workflow(kwargs: dict):
+    """Run the workflow using a sweets_config.yaml file."""
+    # importing below for faster CLI startup
+    from sweets.core import Workflow
+
+    cfg_file = kwargs["config_file"]
+    if not cfg_file.exists():
+        raise ValueError(f"Config file {cfg_file} does not exist")
+
+    if "yaml" not in cfg_file.suffix and "yml" not in cfg_file.suffix:
+        raise ValueError(f"Config file {cfg_file} is not a yaml file.")
+
+    workflow = Workflow.from_yaml(cfg_file)
+    workflow.run()
+
+
+def create_config(kwargs: dict):
+    """Create a sweets_config.yaml file from command line arguments."""
+    from sweets.core import Workflow
+
+    outfile = kwargs.pop("outfile", None)
+    print(f"Creating config file at {outfile}.", file=sys.stderr)
+    if kwargs.pop("save_empty", False):
+        Workflow.print_yaml_schema(outfile)
+    else:
+        workflow = Workflow(**kwargs, start_dask=False)
+        workflow.to_yaml(outfile)
 
 
 def main(args=None):
     """Top-level command line interface to the workflows."""
     args = _get_cli_args()
-
-    # importing below for faster CLI startup
-    from sweets.core import Workflow
-    from sweets.utils import to_wkt
-
-    if args.config_file is not None:
-        if not args.config_file.exists():
-            raise ValueError(f"Config file {args.config_file} does not exist")
-        if (
-            "yaml" not in args.config_file.suffix
-            and "yml" not in args.config_file.suffix
-        ):
-            raise ValueError(f"Config file {args.config_file} is not a yaml file.")
-        workflow = Workflow.from_yaml(args.config_file)
-    else:
-        if args.geojson is not None:
-            with open(args.geojson.name, "r") as f:
-                args.wkt = to_wkt(json.load(f))
-            args.geojson = None
-            if args.wkt is None and args.bbox is None:
-                raise ValueError(
-                    "Must specify --config, or one of --bbox, --wkt, or --geojson for"
-                    " AOI bounds."
-                )
-
-        arg_dict = {k: v for k, v in vars(args).items() if v is not None}
-        workflow = Workflow(**arg_dict)
-
-    workflow.save(f"sweets_config_{datetime.now().strftime('%Y%m%d_%H%M%S')}.yaml")
-    workflow.run()
+    func = args.pop("func")
+    func(args)
