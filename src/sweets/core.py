@@ -53,6 +53,14 @@ class Workflow(YamlModel):
     )
 
     asf_query: ASFQuery
+    skip_download_if_exists: bool = Field(
+        True,
+        description=(
+            "Don't re-query ASF if there's any existing data in the download directory."
+            " Otherwise, will re-query and only skip files that match checksums (done"
+            " by aria2)."
+        ),
+    )
     interferogram_options: InterferogramOptions = Field(
         default_factory=InterferogramOptions,
         description="Options for interferogram creation.",
@@ -176,6 +184,7 @@ class Workflow(YamlModel):
                 # threads we're going to use in the workers, so it will kick off
                 # n_workers * threads_per_worker jobs at once, which is too many.
                 threads_per_worker=1,
+                processes=False,
             )
         else:
             self._client = None
@@ -211,13 +220,13 @@ class Workflow(YamlModel):
             create_water_mask, self._water_mask_filename, self._dem_bbox
         )
 
-    def _download_rslcs(self, skip_if_exists: bool = True) -> Future:
+    def _download_rslcs(self) -> Future:
         """Download Sentinel zip files from ASF."""
         self.log_dir.mkdir(parents=True, exist_ok=True)
         # The final name will depend on if we're unzipping or not
         ext = ".SAFE" if self.asf_query.unzip else ".zip"
         existing_files = sorted(self.asf_query.out_dir.glob("S*" + ext))
-        if existing_files and skip_if_exists:
+        if existing_files and self.skip_download_if_exists:
             logger.info(
                 f"Found {len(existing_files)} existing {ext} files in"
                 f" {self.asf_query.out_dir}. Skipping download."
@@ -290,8 +299,8 @@ class Workflow(YamlModel):
             network = Network(
                 gslc_files,
                 outdir=outdir,
-                max_temporal_baseline=self.max_temporal_baseline,
-                max_bandwidth=self.max_bandwidth,
+                max_temporal_baseline=self.interferogram_options.max_temporal_baseline,
+                max_bandwidth=self.interferogram_options.max_bandwidth,
                 subdataset=OPERA_DATASET_NAME,
                 write=False,
             )
@@ -308,7 +317,7 @@ class Workflow(YamlModel):
                     vrt_ifg.ref_slc,
                     vrt_ifg.sec_slc,
                     outfile,
-                    looks=self.looks,
+                    looks=self.interferogram_options.looks,
                     bbox=self.bbox,
                 )
                 #     overlapping_with=dem_file,
@@ -389,7 +398,7 @@ class Workflow(YamlModel):
                         ifg_filename=ifg_file,
                         corr_filename=cor_file,
                         unw_filename=outfile,
-                        nlooks=int(np.prod(self.looks)),
+                        nlooks=int(np.prod(self.interferogram_options.looks)),
                         mask_file=self._warped_water_mask,
                         # do_tile=False,  # Probably make this an option too
                         init_method="mst",  # TODO: make this an option?

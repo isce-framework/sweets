@@ -94,7 +94,7 @@ class ASFQuery(YamlModel):
         description="(start, end) range of ASF frames.",
     )
     unzip: bool = Field(
-        True,
+        False,
         description="Unzip downloaded files into .SAFE directories",
     )
     _url: str = PrivateAttr()
