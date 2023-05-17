@@ -1,4 +1,5 @@
-from functools import lru_cache
+from __future__ import annotations
+
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -84,10 +85,14 @@ def plot_ifg(
 
 
 def browse_ifgs(
-    sweets_path: Filename,
+    sweets_path: Optional[Filename] = None,
+    file_list: Optional[list[Filename]] = None,
+    amp_image: Optional[ArrayLike] = None,
     figsize: Tuple[int, int] = (7, 4),
-    vm: int = 10,
+    vm_unw: float = 10,
+    vm_cor: float = 1,
     layout="horizontal",
+    axes: Optional[plt.Axes] = None,
 ):
     """Browse interferograms in a sweets directory.
 
@@ -97,45 +102,78 @@ def browse_ifgs(
     ----------
     sweets_path : str
         Path to sweets directory.
+    file_list : list[Filename], optional
+        Alternative to `sweets_path`, directly provide a list of ifg files.
+    amp_image : ArrayLike, optional
+        If provided, plots an amplitude image along with the ifgs for visual reference.
     figsize : tuple
         Figure size.
-    vm : int
+    vm_unw : float
         Value used as min/max cutoff for unwrapped phase plot.
+    vm_cor : float
+        Value used as min/max cutoff for correlation phase plot.
     layout : str
         Layout of the plot. Can be "horizontal" or "vertical".
+    axes : matplotlib.pyplot.Axes
+        If provided, use this array of axes to plot the images.
+        Otherwise, creates a new figure.
     """
-    ifg_path = Path(sweets_path) / "interferograms/stitched"
-    file_list = sorted(ifg_path.glob("2*.int"))
+    if file_list is None:
+        if sweets_path is None:
+            raise ValueError("Must provide `file_list` or `sweets_path`")
+        ifg_path = Path(sweets_path) / "interferograms/stitched"
+        file_list = sorted(ifg_path.glob("2*.int"))
+    file_list = [Path(f) for f in file_list]
+    print(f"Browsing {len(file_list)} ifgs.")
 
+    num_panels = 2  # ifg, cor
+
+    # Check if we have unwrapped images
     unw_list = [
         Path(str(i).replace("stitched", "unwrapped")).with_suffix(".unw")
         for i in file_list
     ]
+    num_existing_unws = sum(f.exists() for f in unw_list)
+    if num_existing_unws > 0:
+        print(f"Found {num_existing_unws} .unw files")
+        num_panels += 1
+
+    if amp_image is not None:
+        num_panels += 1
+
+    if axes is None:
+        subplots_dict = dict(figsize=figsize, sharex=True, sharey=True)
+        if layout == "horizontal":
+            subplots_dict["ncols"] = num_panels
+        else:
+            subplots_dict["nrows"] = num_panels
+        fig, axes = plt.subplots(**subplots_dict)
+    else:
+        fig = axes[0].figure
 
     # imgs = np.stack([io.load_gdal(f) for f in file_list])
     img = _get_img(file_list[0])
     phase = np.angle(img)
     cor = np.abs(img)
-    titles = [f.stem for f in file_list]
-
-    subplots_dict = dict(figsize=figsize, sharex=True, sharey=True)
-    if layout == "horizontal":
-        subplots_dict["ncols"] = 3
-    else:
-        subplots_dict["nrows"] = 3
-    fig, axes = plt.subplots(**subplots_dict)
+    titles = [f.stem for f in file_list]  # type: ignore
 
     # plot once with colorbar
     plot_ifg(img=phase, add_colorbar=True, ax=axes[0])
     axim_ifg = axes[0].images[0]
 
-    axim_cor = axes[1].imshow(cor, cmap="plasma", vmax=1, vmin=0)
+    # vm_cor = np.nanpercentile(cor.ravel(), 99)
+    axim_cor = axes[1].imshow(cor, cmap="plasma", vmin=0, vmax=vm_cor)
     fig.colorbar(axim_cor, ax=axes[1])
 
     if unw_list[0].exists():
         unw = _get_img(unw_list[0])
-        axim_unw = axes[2].imshow(unw, cmap="RdBu", vmin=-vm, vmax=vm)
+        axim_unw = axes[2].imshow(unw, cmap="RdBu", vmin=-vm_unw, vmax=vm_unw)
         fig.colorbar(axim_unw, ax=axes[2])
+
+    if amp_image is not None:
+        vm_amp = np.nanpercentile(amp_image.ravel(), 99)
+        axim_amp = axes[-1].imshow(amp_image, cmap="gray", vmax=vm_amp)
+        fig.colorbar(axim_amp, ax=axes[2])
 
     @ipywidgets.interact(idx=(0, len(file_list) - 1))
     def browse_plot(idx=0):
@@ -174,6 +212,6 @@ except:
     plt.register_cmap(cmap=DISMPH)
 
 
-@lru_cache(maxsize=30)
+# @lru_cache(maxsize=30)
 def _get_img(filename: Filename):
     return io.load_gdal(filename)
