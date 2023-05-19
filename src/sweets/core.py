@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Optional
 
@@ -9,6 +10,7 @@ import numpy as np
 from dask.distributed import Client, Future, wait
 from dolphin import io, stitching, unwrap
 from dolphin.interferogram import Network
+from dolphin.utils import group_by_date
 from dolphin.workflows import group_by_burst
 from dolphin.workflows.config import OPERA_DATASET_NAME, YamlModel
 from pydantic import Extra, Field, root_validator, validator
@@ -186,6 +188,7 @@ class Workflow(YamlModel):
                 threads_per_worker=1,
                 processes=False,
             )
+            self._client.amm.start()
         else:
             self._client = None
 
@@ -206,6 +209,27 @@ class Workflow(YamlModel):
             self.bbox[3] + 0.25,
         )
 
+    # Intermediate outputs:
+    # From step 1:
+    def _get_existing_rslcs(self) -> list[Path]:
+        ext = ".SAFE" if self.asf_query.unzip else ".zip"
+        return sorted(self.asf_query.out_dir.glob("S*" + ext))
+
+    # From step 2:
+    def _get_existing_gslcs(self) -> list[Path]:
+        return sorted(self.gslc_dir.rglob("t*.h5"))
+
+    # From step 3:
+    def _get_existing_burst_ifgs(self) -> list[Path]:
+        return list(self.ifg_dir.rglob("2*.tif"))
+
+    # From step 4:
+    def _get_existing_stitched_ifgs(self) -> tuple[list[Path], list[Path]]:
+        ifg_file_list = sorted(Path(self.ifg_dir / "stitched").glob("2*.int"))
+        cor_file_list = [f.with_suffix(".cor") for f in ifg_file_list]
+        return ifg_file_list, cor_file_list
+
+    # Download helpers to kick off for step 1:
     def _download_dem(self) -> Future:
         """Kick off download/creation the DEM."""
         return self._client.submit(create_dem, self._dem_filename, self._dem_bbox)
@@ -224,11 +248,11 @@ class Workflow(YamlModel):
         """Download Sentinel zip files from ASF."""
         self.log_dir.mkdir(parents=True, exist_ok=True)
         # The final name will depend on if we're unzipping or not
-        ext = ".SAFE" if self.asf_query.unzip else ".zip"
-        existing_files = sorted(self.asf_query.out_dir.glob("S*" + ext))
+        existing_files = self._get_existing_rslcs()
+
         if existing_files and self.skip_download_if_exists:
             logger.info(
-                f"Found {len(existing_files)} existing {ext} files in"
+                f"Found {len(existing_files)} existing files in"
                 f" {self.asf_query.out_dir}. Skipping download."
             )
             return self._client.submit(lambda: existing_files)
@@ -268,7 +292,7 @@ class Workflow(YamlModel):
         # Check which ones we have without submitting a future
         gslc_futures = []
         gslc_files = []
-        existing_paths = self.gslc_dir.glob("**/*.h5")
+        existing_paths = self._get_existing_gslcs()
         name_to_paths = {p.name: p for p in existing_paths}
         logger.info(f"Found {len(name_to_paths)} existing GSLC files")
         for cfg_file in compass_cfg_files:
@@ -292,6 +316,7 @@ class Workflow(YamlModel):
         # Group the SLCs by burst:
         # {'t078_165573_iw2': [PosixPath('gslcs/t078_165573_iw2/20221029/...], 't078_...
         burst_to_gslc = group_by_burst(gslc_files)
+        burst_to_ifg = group_by_burst(self._get_existing_burst_ifgs())
         ifg_path_list = []
         for burst, gslc_files in burst_to_gslc.items():
             outdir = self.ifg_dir / burst
@@ -307,34 +332,44 @@ class Workflow(YamlModel):
             logger.info(
                 f"{len(network)} interferograms to create for burst {burst} in {outdir}"
             )
-            logger.info(f"{len(list(outdir.glob('*.tif')))} existing interferograms")
-            ifg_futures = []
+            cur_existing = burst_to_ifg[burst]
+            logger.info(f"{cur_existing} existing interferograms")
+            if len(network) == len(cur_existing):
+                ifg_path_list.extend(cur_existing)
+            else:
+                ifg_futures = []
+                with ThreadPoolExecutor(
+                    max_workers=self.n_workers * self.threads_per_worker
+                ) as exc:
+                    for vrt_ifg in network.ifg_list:
+                        outfile = vrt_ifg.path.with_suffix(".tif")
+                        ifg_fut = exc.submit(
+                            # ifg_fut = self._client.submit(
+                            create_ifg,
+                            vrt_ifg.ref_slc,
+                            vrt_ifg.sec_slc,
+                            outfile,
+                            looks=self.interferogram_options.looks,
+                            bbox=self.bbox,
+                        )
+                    #     overlapping_with=dem_file,
 
-            for vrt_ifg in network.ifg_list:
-                outfile = vrt_ifg.path.with_suffix(".tif")
-                ifg_fut = self._client.submit(
-                    create_ifg,
-                    vrt_ifg.ref_slc,
-                    vrt_ifg.sec_slc,
-                    outfile,
-                    looks=self.interferogram_options.looks,
-                    bbox=self.bbox,
-                )
-                #     overlapping_with=dem_file,
+                    ifg_futures.append(ifg_fut)
 
-                ifg_futures.append(ifg_fut)
+                    for fut in ifg_futures:
+                        ifg_path_list.append(fut.result())
 
-            cur_ifg_paths = self._client.gather(ifg_futures)
-            ifg_path_list.extend(cur_ifg_paths)
-            # Make sure we free up the memory
-            self._client.cancel(ifg_futures)
+            # cur_ifg_paths = self._client.gather(ifg_futures)
+            # ifg_path_list.extend(cur_ifg_paths)
+            # # Make sure we free up the memory
+            # self._client.cancel(ifg_futures)
 
         return ifg_path_list
 
     @log_runtime
     def _stitch_interferograms(self, ifg_path_list):
         self.stitched_ifg_dir.mkdir(parents=True, exist_ok=True)
-        grouped_images = stitching._group_by_date(ifg_path_list)
+        grouped_images = group_by_date(ifg_path_list)
         stitched_ifg_files = []
         cor_files = []
         ifg_futures = []
@@ -421,30 +456,56 @@ class Workflow(YamlModel):
         self._client.cluster.scale(self.n_workers)
 
     @log_runtime
-    def run(self):
+    def run(self, starting_step: int = 1):
         """Run the workflow."""
         setup_nasa_netrc()
         self._setup_workers()
 
-        dem_fut = self._download_dem()
-        burst_db_fut = self._download_burst_db()
-        water_mask_fut = self._download_water_mask()
-        rslc_futures = self._download_rslcs()
-        # Use .parent of the .result() so that next step depends on the result
-        rslc_data_path = rslc_futures.result()[0].parent
-        orbit_futures = self._client.submit(
-            download_orbits, rslc_data_path, self.orbit_dir
-        )
+        rslc_files = gslc_files = ifg_path_list = None
+        # First step: data download
+        if starting_step <= 1:
+            dem_fut = self._download_dem()
+            burst_db_fut = self._download_burst_db()
+            water_mask_fut = self._download_water_mask()
+            rslc_futures = self._download_rslcs()
+            # Use .parent of the .result() so that next step depends on the result
+            rslc_data_path = rslc_futures.result()[0].parent
+            orbit_futures = self._client.submit(
+                download_orbits, rslc_data_path, self.orbit_dir
+            )
+            # Gather the futures once everything is downloaded
+            dem_file, burst_db_file = self._client.gather([dem_fut, burst_db_fut])
+            rslc_files = rslc_futures.result()
+            wait(water_mask_fut)
+            wait(orbit_futures)
 
-        # Gather the futures once everything is downloaded
-        dem_file, burst_db_file = self._client.gather([dem_fut, burst_db_fut])
-        rslc_files = rslc_futures.result()
-        wait(water_mask_fut)
-        wait(orbit_futures)
+        # Second step:
+        if starting_step <= 2:
+            if rslc_files is None:
+                rslc_files = self._get_existing_rslcs()
+                dem_file = self._dem_filename
+                burst_db_file = self._download_burst_db()
+            gslc_files = self._geocode_slcs(rslc_files, dem_file, burst_db_file)
 
-        gslc_files = self._geocode_slcs(rslc_files, dem_file, burst_db_file)
-        ifg_path_list = self._create_burst_interferograms(gslc_files)
-        stitched_ifg_files, cor_files = self._stitch_interferograms(ifg_path_list)
+        if starting_step <= 3:
+            if gslc_files is None:
+                gslc_files = sorted(self.gslc_dir.rglob("t*.h5"))
+                logger.info(
+                    f"Found {len(gslc_files)} existing GSLC files in {self.gslc_dir}"
+                )
+            ifg_path_list = self._create_burst_interferograms(gslc_files)
+
+        if starting_step <= 4:
+            if ifg_path_list is None:
+                logger.info(f"Searching for existing burst ifgs in {self.ifg_dir}")
+                ifg_path_list = self._get_existing_burst_ifgs()
+                logger.info(f"Found {len(ifg_path_list)} burst ifgs")
+
+            stitched_ifg_files, cor_files = self._stitch_interferograms(ifg_path_list)
+        else:
+            stitched_ifg_files, cor_files = self._get_existing_stitched_ifgs()
+            logger.info(f"Found {len(stitched_ifg_files)} stitched ifgs")
+
         unwrapped_files = self._unwrap_ifgs(stitched_ifg_files, cor_files)
 
         return unwrapped_files

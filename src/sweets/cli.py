@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import argparse
 import sys
 from pathlib import Path
@@ -152,6 +154,19 @@ def _get_cli_args() -> dict:
             " config will be created from the command line arguments."
         ),
     )
+    run_parser.add_argument(
+        "--starting-step",
+        type=int,
+        default=1,
+        help=(
+            "If > 1, will skip earlier steps of the workflow. Step: "
+            "1. Download RSLC data from ASF. 2. Create GSLCs. "
+            "3. Create burst interfereograms. "
+            "4. Stitch burst interferograms into one per date. "
+            "5. Unwrap. "
+        ),
+    )
+
     run_parser.set_defaults(func=run_workflow)
 
     arg_groups = {}
@@ -191,7 +206,7 @@ def run_workflow(kwargs: dict):
         raise ValueError(f"Config file {cfg_file} is not a yaml file.")
 
     workflow = Workflow.from_yaml(cfg_file)
-    workflow.run()
+    workflow.run(starting_step=kwargs.get("starting_step", 1))
 
 
 def create_config(kwargs: dict):

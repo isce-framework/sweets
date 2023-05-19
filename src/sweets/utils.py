@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 import os
 import sys
@@ -5,6 +7,7 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 import rasterio as rio
+from osgeo import gdal
 from rasterio.vrt import WarpedVRT
 from shapely import geometry, wkt
 
@@ -164,3 +167,34 @@ def get_overlapping_bounds(
     b1 = geometry.box(*bbox1)
     b2 = geometry.box(*bbox2)
     return b1.intersection(b2).bounds
+
+
+def get_raster_stats(filename: Filename) -> tuple[float, float, float, float]:
+    """Get the (Min, Max, Mean, StdDev) of the 1-band file."""
+    ds = gdal.Open(str(filename), gdal.GA_Update)
+    band = ds.GetRasterBand(1)
+    s = band.GetStatistics(0, 1)
+    band = ds = None
+    return s
+
+
+def is_valid(filename: Filename) -> tuple[bool, str]:
+    """Check if GDAL can open the file and if there are any valid pixels.
+
+    Parameters
+    ----------
+    filename : Filename
+        Path to file.
+
+    Returns
+    -------
+    bool:
+        False if bad file, or no valid pixels.
+    str:
+        Reason behind a `False` value given by GDAL.
+    """
+    try:
+        get_raster_stats(filename)
+    except RuntimeError as e:
+        return False, str(e)
+    return True, ""

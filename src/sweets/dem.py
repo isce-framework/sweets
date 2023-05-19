@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from os import fspath
 from pathlib import Path
 from typing import Tuple

@@ -101,6 +101,8 @@ def create_ifg(
     with dask.config.set(**{"array.slicing.split_large_chunks": False}):
         # _form_ifg(da_ref, da_sec, looks, outfile, ref_filename=vrt_ifg.ref_slc)
         _form_ifg(da_ref, da_sec, looks, outfile)
+    del da_ref
+    del da_sec
 
     return outfile
 
@@ -206,6 +208,7 @@ def _form_ifg(
         # TODO: saving as HDF5 will be more work to get the projection copied over
         DEFAULT_HDF5_OPTIONS["chunks"] = tuple(DEFAULT_HDF5_OPTIONS["chunks"])
         ifg.to_hdf5(outfile, "ifg", **DEFAULT_HDF5_OPTIONS)
+    del ifg  # Deleting to tell dask it is done
 
 
 def _form_ifg_name(slc1: Filename, slc2: Filename, out_dir: Filename) -> Path:
