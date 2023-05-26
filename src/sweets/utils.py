@@ -3,6 +3,9 @@ from __future__ import annotations
 import json
 import os
 import sys
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
+from math import nan
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -169,13 +172,35 @@ def get_overlapping_bounds(
     return b1.intersection(b2).bounds
 
 
-def get_raster_stats(filename: Filename) -> tuple[float, float, float, float]:
-    """Get the (Min, Max, Mean, StdDev) of the 1-band file."""
-    ds = gdal.Open(str(filename), gdal.GA_Update)
-    band = ds.GetRasterBand(1)
-    s = band.GetStatistics(0, 1)
-    band = ds = None
-    return s
+@dataclass
+class Stats:
+    """Class holding the raster stats returned by `gdalinfo`."""
+
+    min: float
+    max: float
+    mean: float
+    stddev: float
+    pct_valid: float
+
+
+def get_raster_stats(filename: Filename, band: int = 1) -> Stats:
+    """Get the (Min, Max, Mean, StdDev, pct_valid) of the 1-band file."""
+    try:
+        ii = gdal.Info(os.fspath(filename), stats=True, format="json")
+    except RuntimeError as e:
+        if "No such file or directory" in e.args[0]:
+            raise
+        elif "no valid pixels found" in e.args[0]:
+            return Stats(nan, nan, nan, nan, 0.0)
+
+    s = ii["bands"][band - 1]["metadata"][""]
+    return Stats(
+        float(s["STATISTICS_MAXIMUM"]),
+        float(s["STATISTICS_MINIMUM"]),
+        float(s["STATISTICS_MEAN"]),
+        float(s["STATISTICS_STDDEV"]),
+        float(s["STATISTICS_VALID_PERCENT"]),
+    )
 
 
 def is_valid(filename: Filename) -> tuple[bool, str]:
@@ -198,3 +223,21 @@ def is_valid(filename: Filename) -> tuple[bool, str]:
     except RuntimeError as e:
         return False, str(e)
     return True, ""
+
+
+def get_bad_files(
+    path: Filename,
+    ext: str = ".int",
+    valid_threshold: float = 0.6,
+    max_jobs: int = 20,
+) -> tuple[list[Path], list[Stats]]:
+    """Check all files in `path` for (partially) invalid rasters."""
+    files = sorted(Path(path).glob(f"*.{ext}"))
+    with ThreadPoolExecutor(max_jobs) as exc:
+        stats = list(exc.map(get_raster_stats, files))
+
+    bad_files = [
+        (f, s) for (f, s) in zip(files, stats) if s.pct_valid < valid_threshold
+    ]
+    out_files, out_stats = list(zip(*bad_files))
+    return out_files, out_stats  # type: ignore
