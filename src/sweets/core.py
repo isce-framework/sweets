@@ -426,7 +426,7 @@ class Workflow(YamlModel):
         dask.config.set({"distributed.scheduler.worker-ttl": None})
         for ifg_file, cor_file in zip(ifg_files, cor_files):
             # outfile = ifg_file.with_suffix(".unw")
-            outfile = self.unw_dir / ifg_file.name.replace(".int", ".unw")
+            outfile = self.unw_dir / ifg_file.name.replace(".int", ".unw.tif")
             unwrapped_files.append(outfile)
             if outfile.exists():
                 logger.info(f"Skipping {outfile}, already exists.")
