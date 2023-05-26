@@ -217,11 +217,11 @@ class Workflow(YamlModel):
 
     # From step 2:
     def _get_existing_gslcs(self) -> list[Path]:
-        return sorted(self.gslc_dir.rglob("t*.h5"))
+        return sorted(self.gslc_dir.glob("t*/*/t*.h5"))
 
     # From step 3:
     def _get_existing_burst_ifgs(self) -> list[Path]:
-        return list(self.ifg_dir.rglob("2*.tif"))
+        return sorted(self.ifg_dir.glob("t*/2*_2*.tif"))
 
     # From step 4:
     def _get_existing_stitched_ifgs(self) -> tuple[list[Path], list[Path]]:
@@ -332,8 +332,8 @@ class Workflow(YamlModel):
             logger.info(
                 f"{len(network)} interferograms to create for burst {burst} in {outdir}"
             )
-            cur_existing = burst_to_ifg[burst]
-            logger.info(f"{cur_existing} existing interferograms")
+            cur_existing = burst_to_ifg.get(burst, [])
+            logger.info(f"{len(cur_existing)} existing interferograms")
             if len(network) == len(cur_existing):
                 ifg_path_list.extend(cur_existing)
             else:
@@ -350,7 +350,9 @@ class Workflow(YamlModel):
                             vrt_ifg.sec_slc,
                             outfile,
                             looks=self.interferogram_options.looks,
-                            bbox=self.bbox,
+                            # TODO: i probably dont save much by limiting the bbox here
+                            # now that the stitched interferograms go to the same bbox
+                            # bbox=self.bbox,
                         )
                     #     overlapping_with=dem_file,
 
@@ -384,6 +386,9 @@ class Workflow(YamlModel):
                     cur_images,
                     outfile=outfile,
                     driver="ENVI",
+                    out_bounds=self.bbox,
+                    out_bounds_epsg=4326,
+                    target_aligned_pixels=True,
                     overwrite=self.overwrite,
                 )
             )
@@ -484,12 +489,12 @@ class Workflow(YamlModel):
             if rslc_files is None:
                 rslc_files = self._get_existing_rslcs()
                 dem_file = self._dem_filename
-                burst_db_file = self._download_burst_db()
+                burst_db_file = self._client.gather(self._download_burst_db())
             gslc_files = self._geocode_slcs(rslc_files, dem_file, burst_db_file)
 
         if starting_step <= 3:
             if gslc_files is None:
-                gslc_files = sorted(self.gslc_dir.rglob("t*.h5"))
+                gslc_files = self._get_existing_gslcs()
                 logger.info(
                     f"Found {len(gslc_files)} existing GSLC files in {self.gslc_dir}"
                 )
