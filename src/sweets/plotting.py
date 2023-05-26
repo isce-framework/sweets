@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional, Union
 
 import ipywidgets
 import matplotlib.pyplot as plt
@@ -20,8 +20,9 @@ def plot_ifg(
     ax: Optional[plt.Axes] = None,
     add_colorbar: bool = True,
     title: str = "",
-    figsize: Optional[Tuple[float, float]] = None,
+    figsize: Optional[tuple[float, float]] = None,
     plot_cor: bool = False,
+    subsample_factor: Union[int, tuple[int, int]] = 1,
     **kwargs,
 ):
     """Plot an interferogram.
@@ -44,6 +45,8 @@ def plot_ifg(
         Figure size.
     plot_cor : bool
         If true, plot the correlation image as well.
+    subsample_factor : int or tuple[int, int]
+        If loading from `filename`, amount to downsample when loading.
 
     Returns
     -------
@@ -53,11 +56,11 @@ def plot_ifg(
         Axes of the plot containing the interferogram.
     """
     if img is None:
+        img = io.load_gdal(filename, subsample_factor=subsample_factor)
+    else:
         # check for accidentally passing a filename as positional
         if isinstance(img, (Path, str)):
-            img = io.load_gdal(img)
-        else:
-            img = io.load_gdal(filename)
+            img = io.load_gdal(img, subsample_factor=subsample_factor)
     phase = np.angle(img) if np.iscomplexobj(img) else img
     if plot_cor:
         cor = np.abs(img)
@@ -88,11 +91,13 @@ def browse_ifgs(
     sweets_path: Optional[Filename] = None,
     file_list: Optional[list[Filename]] = None,
     amp_image: Optional[ArrayLike] = None,
-    figsize: Tuple[int, int] = (7, 4),
+    figsize: tuple[int, int] = (7, 4),
     vm_unw: float = 10,
     vm_cor: float = 1,
     layout="horizontal",
     axes: Optional[plt.Axes] = None,
+    ref_unw: Optional[tuple[float, float]] = None,
+    subsample_factor: Union[int, tuple[int, int]] = 1,
 ):
     """Browse interferograms in a sweets directory.
 
@@ -117,7 +122,20 @@ def browse_ifgs(
     axes : matplotlib.pyplot.Axes
         If provided, use this array of axes to plot the images.
         Otherwise, creates a new figure.
+    ref_unw : Optional[tuple[int, int]]
+        Reference point for all .unw files.
+        If not passed, subtracts the mean of each file.
+    subsample_factor : int or tuple[int, int]
+        Amount to downsample when loading images.
     """
+
+    def apply_ref(unw):
+        mask = unw == 0
+        ref = unw[ref_unw] if ref_unw is not None else unw.mean()
+        unw -= ref
+        unw[mask] = 0
+        return unw
+
     if file_list is None:
         if sweets_path is None:
             raise ValueError("Must provide `file_list` or `sweets_path`")
@@ -152,7 +170,7 @@ def browse_ifgs(
         fig = axes[0].figure
 
     # imgs = np.stack([io.load_gdal(f) for f in file_list])
-    img = _get_img(file_list[0])
+    img = io.load_gdal(file_list[0], subsample_factor=subsample_factor)
     phase = np.angle(img)
     cor = np.abs(img)
     titles = [f.stem for f in file_list]  # type: ignore
@@ -166,7 +184,7 @@ def browse_ifgs(
     fig.colorbar(axim_cor, ax=axes[1])
 
     if unw_list[0].exists():
-        unw = _get_img(unw_list[0])
+        unw = apply_ref(io.load_gdal(unw_list[0], subsample_factor=subsample_factor))
         axim_unw = axes[2].imshow(unw, cmap="RdBu", vmin=-vm_unw, vmax=vm_unw)
         fig.colorbar(axim_unw, ax=axes[2])
 
@@ -177,12 +195,16 @@ def browse_ifgs(
 
     @ipywidgets.interact(idx=(0, len(file_list) - 1))
     def browse_plot(idx=0):
-        phase = np.angle(_get_img(file_list[idx]))
-        cor = np.abs(_get_img(file_list[idx]))
+        phase = np.angle(
+            io.load_gdal(file_list[idx], subsample_factor=subsample_factor)
+        )
+        cor = np.abs(io.load_gdal(file_list[idx], subsample_factor=subsample_factor))
         axim_ifg.set_data(phase)
         axim_cor.set_data(cor)
         if unw_list[idx].exists():
-            unw = _get_img(unw_list[idx])
+            unw = apply_ref(
+                io.load_gdal(unw_list[idx], subsample_factor=subsample_factor)
+            )
             axim_unw.set_data(unw)
         fig.suptitle(titles[idx])
 
@@ -212,6 +234,6 @@ except:
     plt.register_cmap(cmap=DISMPH)
 
 
-# @lru_cache(maxsize=30)
-def _get_img(filename: Filename):
-    return io.load_gdal(filename)
+# # @lru_cache(maxsize=30)
+# def io.load_gdal(filename: , subsample_factor=subsample_factorFilename):
+#     return io.load_gdal(filename)
