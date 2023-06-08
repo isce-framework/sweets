@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import shutil
 import subprocess
 from os import fspath
@@ -9,6 +11,7 @@ import journal
 import numpy as np
 from compass import s1_geocode_slc, s1_geocode_stack
 from compass.utils.geo_runconfig import GeoRunConfig
+from dolphin.workflows.config import OPERA_DATASET_NAME
 
 from ._log import get_log
 from ._types import Filename
@@ -74,7 +77,7 @@ def repack_and_compress(
     chunks: Sequence[int] = (128, 128),
     outfile: Optional[Filename] = None,
     overwrite: bool = True,
-    dset_name="science/SENTINEL1/CSLC/grids/VV",
+    dset_name=OPERA_DATASET_NAME,
 ):
     """Chunk output product and compress it."""
     temp_out = str(slc_file).replace(".h5", "_zeroed.h5")
@@ -185,7 +188,7 @@ def create_config_files(
         x_spac=x_posting,
         y_spac=y_posting,
         using_zipped=using_zipped,
-        enable_corrections=False,
+        enable_corrections=True,
         enable_metadata=True,
     )
     return sorted((Path(out_dir) / "runconfigs").glob("*"))

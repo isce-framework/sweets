@@ -1,13 +1,21 @@
-from functools import lru_cache
-from pathlib import Path
-from typing import Optional, Tuple
+from __future__ import annotations
 
+from pathlib import Path
+from typing import List, Optional, Tuple, Union
+
+import cartopy.crs as ccrs
+import cartopy.feature as cfeature
+import geopandas as gpd
 import ipywidgets
 import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
 import numpy as np
+from cartopy.io import shapereader
+from cartopy.mpl.gridliner import LATITUDE_FORMATTER, LONGITUDE_FORMATTER
 from dolphin import io
 from matplotlib.colors import LinearSegmentedColormap
 from numpy.typing import ArrayLike
+from shapely.geometry import Polygon, box
 
 from ._types import Filename
 
@@ -19,8 +27,9 @@ def plot_ifg(
     ax: Optional[plt.Axes] = None,
     add_colorbar: bool = True,
     title: str = "",
-    figsize: Optional[Tuple[float, float]] = None,
+    figsize: Optional[tuple[float, float]] = None,
     plot_cor: bool = False,
+    subsample_factor: Union[int, tuple[int, int]] = 1,
     **kwargs,
 ):
     """Plot an interferogram.
@@ -43,6 +52,8 @@ def plot_ifg(
         Figure size.
     plot_cor : bool
         If true, plot the correlation image as well.
+    subsample_factor : int or tuple[int, int]
+        If loading from `filename`, amount to downsample when loading.
 
     Returns
     -------
@@ -52,11 +63,11 @@ def plot_ifg(
         Axes of the plot containing the interferogram.
     """
     if img is None:
+        img = io.load_gdal(filename, subsample_factor=subsample_factor)
+    else:
         # check for accidentally passing a filename as positional
         if isinstance(img, (Path, str)):
-            img = io.load_gdal(img)
-        else:
-            img = io.load_gdal(filename)
+            img = io.load_gdal(img, subsample_factor=subsample_factor)
     phase = np.angle(img) if np.iscomplexobj(img) else img
     if plot_cor:
         cor = np.abs(img)
@@ -84,10 +95,16 @@ def plot_ifg(
 
 
 def browse_ifgs(
-    sweets_path: Filename,
-    figsize: Tuple[int, int] = (7, 4),
-    vm: int = 10,
+    sweets_path: Optional[Filename] = None,
+    file_list: Optional[list[Filename]] = None,
+    amp_image: Optional[ArrayLike] = None,
+    figsize: tuple[int, int] = (7, 4),
+    vm_unw: float = 10,
+    vm_cor: float = 1,
     layout="horizontal",
+    axes: Optional[plt.Axes] = None,
+    ref_unw: Optional[tuple[float, float]] = None,
+    subsample_factor: Union[int, tuple[int, int]] = 1,
 ):
     """Browse interferograms in a sweets directory.
 
@@ -97,54 +114,104 @@ def browse_ifgs(
     ----------
     sweets_path : str
         Path to sweets directory.
+    file_list : list[Filename], optional
+        Alternative to `sweets_path`, directly provide a list of ifg files.
+    amp_image : ArrayLike, optional
+        If provided, plots an amplitude image along with the ifgs for visual reference.
     figsize : tuple
         Figure size.
-    vm : int
+    vm_unw : float
         Value used as min/max cutoff for unwrapped phase plot.
+    vm_cor : float
+        Value used as min/max cutoff for correlation phase plot.
     layout : str
         Layout of the plot. Can be "horizontal" or "vertical".
+    axes : matplotlib.pyplot.Axes
+        If provided, use this array of axes to plot the images.
+        Otherwise, creates a new figure.
+    ref_unw : Optional[tuple[int, int]]
+        Reference point for all .unw files.
+        If not passed, subtracts the mean of each file.
+    subsample_factor : int or tuple[int, int]
+        Amount to downsample when loading images.
     """
-    ifg_path = Path(sweets_path) / "interferograms/stitched"
-    file_list = sorted(ifg_path.glob("2*.int"))
 
+    def apply_ref(unw):
+        mask = unw == 0
+        ref = unw[ref_unw] if ref_unw is not None else unw.mean()
+        unw -= ref
+        unw[mask] = 0
+        return unw
+
+    if file_list is None:
+        if sweets_path is None:
+            raise ValueError("Must provide `file_list` or `sweets_path`")
+        ifg_path = Path(sweets_path) / "interferograms/stitched"
+        file_list = sorted(ifg_path.glob("2*.int"))
+    file_list = [Path(f) for f in file_list]
+    print(f"Browsing {len(file_list)} ifgs.")
+
+    num_panels = 2  # ifg, cor
+
+    # Check if we have unwrapped images
     unw_list = [
         Path(str(i).replace("stitched", "unwrapped")).with_suffix(".unw")
         for i in file_list
     ]
+    num_existing_unws = sum(f.exists() for f in unw_list)
+    if num_existing_unws > 0:
+        print(f"Found {num_existing_unws} .unw files")
+        num_panels += 1
+
+    if amp_image is not None:
+        num_panels += 1
+
+    if axes is None:
+        subplots_dict = dict(figsize=figsize, sharex=True, sharey=True)
+        if layout == "horizontal":
+            subplots_dict["ncols"] = num_panels
+        else:
+            subplots_dict["nrows"] = num_panels
+        fig, axes = plt.subplots(**subplots_dict)
+    else:
+        fig = axes[0].figure
 
     # imgs = np.stack([io.load_gdal(f) for f in file_list])
-    img = _get_img(file_list[0])
+    img = io.load_gdal(file_list[0], subsample_factor=subsample_factor)
     phase = np.angle(img)
     cor = np.abs(img)
-    titles = [f.stem for f in file_list]
-
-    subplots_dict = dict(figsize=figsize, sharex=True, sharey=True)
-    if layout == "horizontal":
-        subplots_dict["ncols"] = 3
-    else:
-        subplots_dict["nrows"] = 3
-    fig, axes = plt.subplots(**subplots_dict)
+    titles = [f.stem for f in file_list]  # type: ignore
 
     # plot once with colorbar
     plot_ifg(img=phase, add_colorbar=True, ax=axes[0])
     axim_ifg = axes[0].images[0]
 
-    axim_cor = axes[1].imshow(cor, cmap="plasma", vmax=1, vmin=0)
+    # vm_cor = np.nanpercentile(cor.ravel(), 99)
+    axim_cor = axes[1].imshow(cor, cmap="plasma", vmin=0, vmax=vm_cor)
     fig.colorbar(axim_cor, ax=axes[1])
 
     if unw_list[0].exists():
-        unw = _get_img(unw_list[0])
-        axim_unw = axes[2].imshow(unw, cmap="RdBu", vmin=-vm, vmax=vm)
+        unw = apply_ref(io.load_gdal(unw_list[0], subsample_factor=subsample_factor))
+        axim_unw = axes[2].imshow(unw, cmap="RdBu", vmin=-vm_unw, vmax=vm_unw)
         fig.colorbar(axim_unw, ax=axes[2])
+
+    if amp_image is not None:
+        vm_amp = np.nanpercentile(amp_image.ravel(), 99)
+        axim_amp = axes[-1].imshow(amp_image, cmap="gray", vmax=vm_amp)
+        fig.colorbar(axim_amp, ax=axes[2])
 
     @ipywidgets.interact(idx=(0, len(file_list) - 1))
     def browse_plot(idx=0):
-        phase = np.angle(_get_img(file_list[idx]))
-        cor = np.abs(_get_img(file_list[idx]))
+        phase = np.angle(
+            io.load_gdal(file_list[idx], subsample_factor=subsample_factor)
+        )
+        cor = np.abs(io.load_gdal(file_list[idx], subsample_factor=subsample_factor))
         axim_ifg.set_data(phase)
         axim_cor.set_data(cor)
         if unw_list[idx].exists():
-            unw = _get_img(unw_list[idx])
+            unw = apply_ref(
+                io.load_gdal(unw_list[idx], subsample_factor=subsample_factor)
+            )
             axim_unw.set_data(unw)
         fig.suptitle(titles[idx])
 
@@ -174,6 +241,108 @@ except:
     plt.register_cmap(cmap=DISMPH)
 
 
-@lru_cache(maxsize=30)
-def _get_img(filename: Filename):
-    return io.load_gdal(filename)
+# # @lru_cache(maxsize=30)
+# def io.load_gdal(filename: , subsample_factor=subsample_factorFilename):
+#     return io.load_gdal(filename)
+
+
+def plot_area_of_interest(
+    state: Optional[str] = None,
+    bbox: Optional[Tuple[float, float, float, float]] = None,
+    area_coordinates: Optional[List[Tuple[float, float]]] = None,
+    buffer: float = 0.0,
+    grid_step: Optional[float] = 1.0,
+    ax=None,
+) -> Tuple:
+    """Make a basic map to highlight an area of interest.
+
+    Parameters
+    ----------
+    state : str
+        The name of the state to center on the plot
+    bbox : tuple of float, optional
+        A tuple representing the bounding box (minx, miny, maxx, maxy) of the AOI
+    area_coordinates : list of tuple of float, optional
+        A list of tuples representing the coordinates of the area of interest.
+    buffer : float, optional
+        The buffer distance for the state's geometry. Default is 0.0, meaning no buffer.
+    grid_step : float
+        Frequency to plot the grid in degrees. if `None`, skips the grid
+    ax : matplotlib.axes._subplots.AxesSubplot, optional
+        An Axes object to plot on. If None, a new figure and axes are created.
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+        The created matplotlib Figure instance.
+    ax : matplotlib.axes._subplots.AxesSubplot
+        The created or used Axes instance.
+    """
+    # Create a GeoAxes object if one wasn't provided
+    if ax is None:
+        # Use cartopy's GeoAxes
+        fig, ax = plt.subplots(subplot_kw={"projection": ccrs.PlateCarree()})
+    else:
+        fig = ax.figure
+
+    # Add a background
+    ax.add_feature(cfeature.LAND)
+    ax.add_feature(cfeature.COASTLINE)
+    if state is not None:
+        # Load the US States geometry
+        states_shp = shapereader.natural_earth(
+            resolution="110m",
+            category="cultural",
+            name="admin_1_states_provinces_lakes",
+        )
+        us_states = gpd.read_file(states_shp)
+
+        # Filter for the state of interest
+        state_geo = us_states[us_states.name.str.lower() == state.lower()]
+        g = state_geo.geometry.iloc[0]
+        buffered_state = g.buffer(buffer)
+        left, bottom, right, top = buffered_state.bounds
+        extent = (left, right, bottom, top)
+        # Filter the GeoDataFrame to only include states that intersect
+        intersecting_states = us_states[us_states.geometry.intersects(buffered_state)]
+        # Plot the states
+        intersecting_states.plot(ax=ax, color="none", edgecolor="black")
+    else:
+        states_provinces = cfeature.NaturalEarthFeature(
+            category="cultural",
+            name="admin_1_states_provinces_lines",
+            scale="110m",
+            facecolor="none",
+        )
+        buffered_bounds = box(*bbox).buffer(buffer).bounds
+        left, bottom, right, top = buffered_bounds
+        extent = (left, right, bottom, top)
+        ax.add_feature(states_provinces, edgecolor="gray")
+
+    ax.set_extent(extent, crs=ccrs.PlateCarree())
+    # Set extent using the correct coordinate system
+
+    if grid_step is not None:
+        gl = ax.gridlines(draw_labels=True, alpha=0.2)
+
+        gl.xlocator = mticker.FixedLocator(np.arange(-180, 180, grid_step))
+        gl.ylocator = mticker.FixedLocator(np.arange(-90, 90, grid_step))
+
+        gl.xformatter = LONGITUDE_FORMATTER
+        gl.yformatter = LATITUDE_FORMATTER
+        gl.right_labels = False
+        gl.top_labels = False
+
+    aoi = None
+    # Create a polygon for the area of interest
+    if bbox is not None:
+        aoi = box(*bbox)
+    elif area_coordinates is not None:
+        aoi = Polygon(area_coordinates)
+    if aoi is not None:
+        # Create a GeoDataFrame for the area of interest
+        area_gdf = gpd.GeoDataFrame([1], geometry=[aoi], crs=state_geo.crs)
+
+        # Plot the area of interest
+        area_gdf.plot(ax=ax, edgecolor="red", facecolor="None", lw=2)
+    return fig, ax

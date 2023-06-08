@@ -37,7 +37,14 @@ sweets --help
 You need to specify the bounding box (left, bottom, right, top) of the area of interest, the start dates (and end date, or it is assumed to be today), and the track number.
 
 ```bash
-sweets --bbox -102.3407 31.9909 -101.9407 32.3909 --start "2022-10-15" --track 78
+sweets config  --bbox -102.3407 31.9909 -101.9407 32.3909 --start "2022-10-15" --track 78
+sweets run sweets_config.yaml
+```
+
+You can also print an empty config file to edit any parameters manually
+
+```bash
+sweets config --print-empty
 ```
 
 Or you can set all the parameters in python:

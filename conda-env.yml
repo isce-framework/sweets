@@ -2,7 +2,7 @@ name: sweets-env
 channels:
   - conda-forge
 dependencies:
-  - python>=3.7,<3.11
+  - python>=3.8
   - pip>=21.3  # https://pip.pypa.io/en/stable/reference/build-system/pyproject-toml/#editable-installation
   - git  # for pip install, due to setuptools_scm
   - aria2 # ASF Downloading
@@ -17,7 +17,6 @@ dependencies:
   - shapely>=1.8
   - dask>= 2022.6.0
   - isce3
-  - backoff >=1.10 # actually needed by isce3 but didnt get installed
   - scipy>=1.5 # extra from COMPASS
   - pyproj>=3.2 # extra from COMPASS
   - pandas  # extra from COMPASS

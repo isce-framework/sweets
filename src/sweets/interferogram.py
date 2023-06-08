@@ -1,8 +1,10 @@
 #!/usr/bin/env python
+from __future__ import annotations
+
 import argparse
 import warnings
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional
 
 import dask
 import dask.array as da
@@ -13,6 +15,7 @@ from compass.utils.helpers import bbox_to_utm
 from dask.distributed import Client
 from dolphin import utils
 from dolphin.io import DEFAULT_HDF5_OPTIONS
+from pydantic import BaseModel, Field, validator
 
 from ._log import get_log, log_runtime
 from ._types import Filename
@@ -30,9 +33,9 @@ def create_ifg(
     sec_slc: Filename,
     outfile: Filename,
     *,
-    looks: Tuple[int, int],
+    looks: tuple[int, int],
     overwrite: bool = False,
-    bbox: Optional[Tuple[float, float, float, float]] = None,
+    bbox: Optional[tuple[float, float, float, float]] = None,
     overlapping_with: Optional[Path] = None,
 ) -> Path:
     """Create a multi-looked, normalized interferogram from GDAL-readable SLCs.
@@ -45,11 +48,11 @@ def create_ifg(
         Path to secondary SLC.
     outfile : Filename
         Path to output file.
-    looks : Tuple[int, int]
+    looks : tuple[int, int]
         row looks, column looks.
     overwrite : bool, optional
         Overwrite existing interferogram in `outfile`, by default False.
-    bbox : Optional[Tuple[float, float, float, float]], optional
+    bbox : Optional[tuple[float, float, float, float]], optional
         Bounding box to crop the interferogram to, by default None.
         Assumes (lon_min, lat_min, lon_max, lat_max) format.
     overlapping_with : Optional[Path], optional
@@ -98,8 +101,41 @@ def create_ifg(
     with dask.config.set(**{"array.slicing.split_large_chunks": False}):
         # _form_ifg(da_ref, da_sec, looks, outfile, ref_filename=vrt_ifg.ref_slc)
         _form_ifg(da_ref, da_sec, looks, outfile)
+    del da_ref
+    del da_sec
 
     return outfile
+
+
+class InterferogramOptions(BaseModel):
+    """Options for creating interferograms in workflow."""
+
+    looks: tuple[int, int] = Field(
+        (6, 12),
+        description="Row looks, column looks. Default is 6, 12 (for 60x60 m).",
+    )
+    max_bandwidth: Optional[int] = Field(
+        4,
+        description="Form interferograms using the nearest n- dates",
+    )
+    max_temporal_baseline: Optional[float] = Field(
+        None,
+        description="Alt. to max_bandwidth: maximum temporal baseline in days.",
+    )
+
+    @validator("max_temporal_baseline", pre=True)
+    def _check_max_temporal_baseline(cls, v, values):
+        """Make sure they didn't specify max_bandwidth and max_temporal_baseline."""
+        if v is None:
+            return v
+        max_bandwidth = values.get("max_bandwidth")
+        if max_bandwidth == cls.schema()["properties"]["max_bandwidth"]["default"]:
+            values["max_bandwidth"] = None
+        else:
+            raise ValueError(
+                "Cannot specify both max_bandwidth and max_temporal_baseline"
+            )
+        return v
 
 
 def _take_looks_da(da: da.Array, row_looks: int, col_looks: int):
@@ -109,7 +145,7 @@ def _take_looks_da(da: da.Array, row_looks: int, col_looks: int):
 def _form_ifg(
     da1: da.Array,
     da2: da.Array,
-    looks: Tuple[int, int],
+    looks: tuple[int, int],
     outfile: Filename,
     # ref_filename=None,
 ):
@@ -121,7 +157,7 @@ def _form_ifg(
         First SLC loaded as a dask array
     da2 : da.array.Array
         Secondary SLC loaded as a dask array
-    looks : Tuple[int, int]
+    looks : tuple[int, int]
         (row looks, column looks)
     outfile : Filename
         Output file to write to.
@@ -172,6 +208,7 @@ def _form_ifg(
         # TODO: saving as HDF5 will be more work to get the projection copied over
         DEFAULT_HDF5_OPTIONS["chunks"] = tuple(DEFAULT_HDF5_OPTIONS["chunks"])
         ifg.to_hdf5(outfile, "ifg", **DEFAULT_HDF5_OPTIONS)
+    del ifg  # Deleting to tell dask it is done
 
 
 def _form_ifg_name(slc1: Filename, slc2: Filename, out_dir: Filename) -> Path:

@@ -26,11 +26,10 @@ from pathlib import Path
 from typing import Any, List, Optional, Tuple
 from urllib.parse import urlencode
 
-import rasterio as rio
 import requests
 from dateutil.parser import parse
-from pydantic import BaseModel, Extra, Field, PrivateAttr, root_validator, validator
-from shapely import wkt
+from dolphin.workflows.config import YamlModel
+from pydantic import Extra, Field, PrivateAttr, root_validator, validator
 from shapely.geometry import box
 
 from ._log import get_log, log_runtime
@@ -42,7 +41,7 @@ logger = get_log(__name__)
 DIRNAME = os.path.dirname(os.path.abspath(__file__))
 
 
-class ASFQuery(BaseModel):
+class ASFQuery(YamlModel):
     """Class holding the Sentinel-1 ASF query parameters."""
 
     out_dir: Path = Field(
@@ -60,21 +59,19 @@ class ASFQuery(BaseModel):
         None,
         description="Well Known Text (WKT) string",
     )
-    dem: Optional[str] = Field(
-        None,
-        description="Name of DEM filename (will parse bbox)",
-    )
-    wkt_file: Optional[Path] = Field(
-        None,
-        description="Well Known Text (WKT) file",
-    )
     start: datetime = Field(
         None,
-        description="Starting datetime for search.",
+        description=(
+            "Starting time for search. Can be datetime or string (goes to"
+            " `dateutil.parse`)"
+        ),
     )
     end: datetime = Field(
-        None,
-        description="Ending datetime for search.",
+        default_factory=datetime.now,
+        description=(
+            "Ending time for search. Can be datetime or string (goes to"
+            " `dateutil.parse`)"
+        ),
     )
     track: Optional[int] = Field(
         None,
@@ -87,17 +84,13 @@ class ASFQuery(BaseModel):
         choices=["ASCENDING", "DESCENDING"],
         description="Ascending or descending",
     )
-    asf_frames: Optional[Tuple[int, int]] = Field(
+    frames: Optional[Tuple[int, int]] = Field(
         None,
         description="(start, end) range of ASF frames.",
     )
     unzip: bool = Field(
-        True,
+        False,
         description="Unzip downloaded files into .SAFE directories",
-    )
-    orbit_dir: Path = Field(
-        Path("orbits"),
-        description="Directory for orbit files",
     )
     _url: str = PrivateAttr()
 
@@ -131,13 +124,11 @@ class ASFQuery(BaseModel):
         if not values.get("wkt"):
             if values.get("bbox") is not None:
                 values["wkt"] = box(*values["bbox"]).wkt
-            elif values.get("dem") is not None:
-                values["wkt"] = cls._get_dem_bbox(values["dem"])
-            elif values.get("wkt_file") is not None:
-                with open(values["wkt_file"]) as f:
-                    values["wkt"] = wkt.load(f)
             else:
-                raise ValueError("Must provide a bbox or a dem or wkt")
+                raise ValueError("Must provide a bbox or wkt")
+
+        elif Path(values["wkt"]).exists():
+            values["wkt"] = Path(values["wkt"]).read_text().strip()
 
         # Check that end is after start
         if values.get("start") is not None and values.get("end") is not None:
@@ -152,9 +143,7 @@ class ASFQuery(BaseModel):
 
     def _form_url(self) -> str:
         """Form the url for the ASF query."""
-        frame_str = (
-            f"{self.asf_frames[0]}-{self.asf_frames[1]}" if self.asf_frames else None
-        )
+        frame_str = f"{self.frames[0]}-{self.frames[1]}" if self.frames else None
         params = dict(
             # bbox is getting deprecated in favor of intersectsWith
             # https://docs.asf.alaska.edu/api/keywords/#geospatial-parameters
@@ -222,11 +211,6 @@ class ASFQuery(BaseModel):
             file_names = unzip_all(self.out_dir, out_dir=self.out_dir)
         return file_names
 
-    @staticmethod
-    def _get_dem_bbox(fname):
-        with rio.open(fname) as ds:
-            return wkt.dumps(box(ds.bounds))
-
 
 @lru_cache(maxsize=10)
 def _query_url(url: str) -> dict:
@@ -256,10 +240,6 @@ def cli():
         help=(
             "Bounding box of area of interest  (e.g. --bbox -106.1 30.1 -103.1 33.1 ). "
         ),
-    )
-    p.add_argument(
-        "--dem",
-        help="Filename of a (gdal-readable) DEM",
     )
     p.add_argument(
         "--wkt-file",
@@ -296,10 +276,6 @@ def cli():
         help="display available data in format of --query-file, no download",
     )
     args = p.parse_args()
-    if all(vars(args)[item] for item in ("bbox", "dem", "absoluteOrbit", "flightLine")):
-        raise ValueError(
-            "Need either --bbox or --dem options without flightLine/absoluteOrbit"
-        )
 
     q = ASFQuery(**vars(args))
     if args.query_only:
