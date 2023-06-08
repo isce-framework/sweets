@@ -1,14 +1,21 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional, Union
+from typing import List, Optional, Tuple, Union
 
+import cartopy.crs as ccrs
+import cartopy.feature as cfeature
+import geopandas as gpd
 import ipywidgets
 import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
 import numpy as np
+from cartopy.io import shapereader
+from cartopy.mpl.gridliner import LATITUDE_FORMATTER, LONGITUDE_FORMATTER
 from dolphin import io
 from matplotlib.colors import LinearSegmentedColormap
 from numpy.typing import ArrayLike
+from shapely.geometry import Polygon, box
 
 from ._types import Filename
 
@@ -237,3 +244,105 @@ except:
 # # @lru_cache(maxsize=30)
 # def io.load_gdal(filename: , subsample_factor=subsample_factorFilename):
 #     return io.load_gdal(filename)
+
+
+def plot_area_of_interest(
+    state: Optional[str] = None,
+    bbox: Optional[Tuple[float, float, float, float]] = None,
+    area_coordinates: Optional[List[Tuple[float, float]]] = None,
+    buffer: float = 0.0,
+    grid_step: Optional[float] = 1.0,
+    ax=None,
+) -> Tuple:
+    """Make a basic map to highlight an area of interest.
+
+    Parameters
+    ----------
+    state : str
+        The name of the state to center on the plot
+    bbox : tuple of float, optional
+        A tuple representing the bounding box (minx, miny, maxx, maxy) of the AOI
+    area_coordinates : list of tuple of float, optional
+        A list of tuples representing the coordinates of the area of interest.
+    buffer : float, optional
+        The buffer distance for the state's geometry. Default is 0.0, meaning no buffer.
+    grid_step : float
+        Frequency to plot the grid in degrees. if `None`, skips the grid
+    ax : matplotlib.axes._subplots.AxesSubplot, optional
+        An Axes object to plot on. If None, a new figure and axes are created.
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+        The created matplotlib Figure instance.
+    ax : matplotlib.axes._subplots.AxesSubplot
+        The created or used Axes instance.
+    """
+    # Create a GeoAxes object if one wasn't provided
+    if ax is None:
+        # Use cartopy's GeoAxes
+        fig, ax = plt.subplots(subplot_kw={"projection": ccrs.PlateCarree()})
+    else:
+        fig = ax.figure
+
+    # Add a background
+    ax.add_feature(cfeature.LAND)
+    ax.add_feature(cfeature.COASTLINE)
+    if state is not None:
+        # Load the US States geometry
+        states_shp = shapereader.natural_earth(
+            resolution="110m",
+            category="cultural",
+            name="admin_1_states_provinces_lakes",
+        )
+        us_states = gpd.read_file(states_shp)
+
+        # Filter for the state of interest
+        state_geo = us_states[us_states.name.str.lower() == state.lower()]
+        g = state_geo.geometry.iloc[0]
+        buffered_state = g.buffer(buffer)
+        left, bottom, right, top = buffered_state.bounds
+        extent = (left, right, bottom, top)
+        # Filter the GeoDataFrame to only include states that intersect
+        intersecting_states = us_states[us_states.geometry.intersects(buffered_state)]
+        # Plot the states
+        intersecting_states.plot(ax=ax, color="none", edgecolor="black")
+    else:
+        states_provinces = cfeature.NaturalEarthFeature(
+            category="cultural",
+            name="admin_1_states_provinces_lines",
+            scale="110m",
+            facecolor="none",
+        )
+        buffered_bounds = box(*bbox).buffer(buffer).bounds
+        left, bottom, right, top = buffered_bounds
+        extent = (left, right, bottom, top)
+        ax.add_feature(states_provinces, edgecolor="gray")
+
+    ax.set_extent(extent, crs=ccrs.PlateCarree())
+    # Set extent using the correct coordinate system
+
+    if grid_step is not None:
+        gl = ax.gridlines(draw_labels=True, alpha=0.2)
+
+        gl.xlocator = mticker.FixedLocator(np.arange(-180, 180, grid_step))
+        gl.ylocator = mticker.FixedLocator(np.arange(-90, 90, grid_step))
+
+        gl.xformatter = LONGITUDE_FORMATTER
+        gl.yformatter = LATITUDE_FORMATTER
+        gl.right_labels = False
+        gl.top_labels = False
+
+    aoi = None
+    # Create a polygon for the area of interest
+    if bbox is not None:
+        aoi = box(*bbox)
+    elif area_coordinates is not None:
+        aoi = Polygon(area_coordinates)
+    if aoi is not None:
+        # Create a GeoDataFrame for the area of interest
+        area_gdf = gpd.GeoDataFrame([1], geometry=[aoi], crs=state_geo.crs)
+
+        # Plot the area of interest
+        area_gdf.plot(ax=ax, edgecolor="red", facecolor="None", lw=2)
+    return fig, ax
