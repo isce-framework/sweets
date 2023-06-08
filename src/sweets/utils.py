@@ -239,5 +239,18 @@ def get_bad_files(
     bad_files = [
         (f, s) for (f, s) in zip(files, stats) if s.pct_valid < valid_threshold
     ]
+    if not bad_files:
+        return [], []
     out_files, out_stats = list(zip(*bad_files))
     return out_files, out_stats  # type: ignore
+
+
+def remove_invalid_ifgs(bad_files: list[Filename]):
+    """Remove invalid ifgs and their unwrapped counterparts."""
+    for ff in bad_files:
+        u = str(ff).replace("stitched", "unwrapped").replace(".int", ".unw")
+        try:
+            Path(u).unlink()
+        except FileNotFoundError:
+            continue
+        Path(ff).unlink()

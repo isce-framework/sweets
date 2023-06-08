@@ -30,7 +30,6 @@ import requests
 from dateutil.parser import parse
 from dolphin.workflows.config import YamlModel
 from pydantic import Extra, Field, PrivateAttr, root_validator, validator
-from shapely import wkt
 from shapely.geometry import box
 
 from ._log import get_log, log_runtime
@@ -59,10 +58,6 @@ class ASFQuery(YamlModel):
     wkt: Optional[str] = Field(
         None,
         description="Well Known Text (WKT) string",
-    )
-    wkt_file: Optional[Path] = Field(
-        None,
-        description="Well Known Text (WKT) file",
     )
     start: datetime = Field(
         None,
@@ -129,11 +124,11 @@ class ASFQuery(YamlModel):
         if not values.get("wkt"):
             if values.get("bbox") is not None:
                 values["wkt"] = box(*values["bbox"]).wkt
-            elif values.get("wkt_file") is not None:
-                with open(values["wkt_file"]) as f:
-                    values["wkt"] = wkt.load(f)
             else:
                 raise ValueError("Must provide a bbox or wkt")
+
+        elif Path(values["wkt"]).exists():
+            values["wkt"] = Path(values["wkt"]).read_text().strip()
 
         # Check that end is after start
         if values.get("start") is not None and values.get("end") is not None:
