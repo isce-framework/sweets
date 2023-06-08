@@ -1,16 +1,13 @@
 from __future__ import annotations
 
-import os
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed, wait
 from pathlib import Path
 from typing import Any, Optional
 
-import dask.config
 import numpy as np
-from dask.distributed import Client, Future, wait
 from dolphin import io, stitching, unwrap
 from dolphin.interferogram import Network
-from dolphin.utils import group_by_date
+from dolphin.utils import group_by_date, set_num_threads
 from dolphin.workflows import group_by_burst
 from dolphin.workflows.config import OPERA_DATASET_NAME, YamlModel
 from pydantic import Extra, Field, root_validator, validator
@@ -92,6 +89,18 @@ class Workflow(YamlModel):
     class Config:
         extra = Extra.allow  # Let us set arbitrary attributes later
 
+    @validator("wkt", pre=True)
+    def _check_file_and_parse_wkt(cls, v):
+        if v is not None:
+            if Path(v).exists():
+                v = Path(v).read_text().strip()
+
+            try:
+                wkt.loads(v)
+            except Exception as e:
+                raise ValueError(f"Invalid WKT string: {e}")
+        return v
+
     # Note: this root_validator's `values` only contains the fields that have
     # been passed in by a user.
     @root_validator(pre=True)
@@ -124,15 +133,6 @@ class Workflow(YamlModel):
     @validator("work_dir", "orbit_dir", pre=True)
     def _expand_dirs(cls, v):
         return Path(v).expanduser().resolve()
-
-    @validator("wkt", pre=True)
-    def _parse_wkt(cls, v):
-        if v is not None:
-            try:
-                wkt.loads(v)
-            except Exception as e:
-                raise ValueError(f"Invalid WKT string: {e}")
-        return v
 
     # while this one has all the fields
     @root_validator()
@@ -176,22 +176,8 @@ class Workflow(YamlModel):
             **kwargs,
         )
 
-    def __init__(self, start_dask=True, **data: Any) -> None:
+    def __init__(self, **data: Any) -> None:
         super().__init__(**data)
-        # Start with 1 worker, scale later upon kicking off `run`
-        if start_dask:
-            self._client = Client(
-                n_workers=1,
-                # Note: we're setting this to 1 because Dask doesn't know how many
-                # threads we're going to use in the workers, so it will kick off
-                # n_workers * threads_per_worker jobs at once, which is too many.
-                threads_per_worker=1,
-                processes=False,
-            )
-            self._client.amm.start()
-        else:
-            self._client = None
-
         # Track the directories that need to be created at start of workflow
         self.log_dir = self.work_dir / "logs"
         self.gslc_dir = self.work_dir / "gslcs"
@@ -308,7 +294,8 @@ class Workflow(YamlModel):
                         log_dir=self.log_dir,
                     )
                 )
-        gslc_files.extend(self._client.gather(gslc_futures))
+        for f in as_completed(gslc_futures):
+            gslc_files.append(f.result())
         return gslc_files
 
     @log_runtime
@@ -338,33 +325,21 @@ class Workflow(YamlModel):
                 ifg_path_list.extend(cur_existing)
             else:
                 ifg_futures = []
-                with ThreadPoolExecutor(
-                    max_workers=self.n_workers * self.threads_per_worker
-                ) as exc:
-                    for vrt_ifg in network.ifg_list:
-                        outfile = vrt_ifg.path.with_suffix(".tif")
-                        ifg_fut = exc.submit(
-                            # ifg_fut = self._client.submit(
-                            create_ifg,
-                            vrt_ifg.ref_slc,
-                            vrt_ifg.sec_slc,
-                            outfile,
-                            looks=self.interferogram_options.looks,
-                            # TODO: i probably dont save much by limiting the bbox here
-                            # now that the stitched interferograms go to the same bbox
-                            # bbox=self.bbox,
-                        )
-                    #     overlapping_with=dem_file,
+                for vrt_ifg in network.ifg_list:
+                    outfile = vrt_ifg.path.with_suffix(".tif")
+                    ifg_fut = self._client.submit(
+                        create_ifg,
+                        vrt_ifg.ref_slc,
+                        vrt_ifg.sec_slc,
+                        outfile,
+                        looks=self.interferogram_options.looks,
+                    )
 
                     ifg_futures.append(ifg_fut)
 
-                    for fut in ifg_futures:
-                        ifg_path_list.append(fut.result())
-
-            # cur_ifg_paths = self._client.gather(ifg_futures)
-            # ifg_path_list.extend(cur_ifg_paths)
-            # # Make sure we free up the memory
-            # self._client.cancel(ifg_futures)
+                wait(ifg_futures)
+                for fut in ifg_futures:
+                    ifg_path_list.append(fut.result())
 
         return ifg_path_list
 
@@ -373,7 +348,6 @@ class Workflow(YamlModel):
         self.stitched_ifg_dir.mkdir(parents=True, exist_ok=True)
         grouped_images = group_by_date(ifg_path_list)
         stitched_ifg_files = []
-        cor_files = []
         ifg_futures = []
         for dates, cur_images in grouped_images.items():
             logger.info(f"{dates}: Stitching {len(cur_images)} images.")
@@ -392,13 +366,14 @@ class Workflow(YamlModel):
                     overwrite=self.overwrite,
                 )
             )
-        self._client.gather(ifg_futures)  # create ifg returns nothing
+        wait(ifg_futures)  # create ifg returns nothing
 
         # Also need to write out a temp correlation file for unwrapping
         cor_futures = []
         for ifg_file in stitched_ifg_files:
             cor_futures.append(self._client.submit(create_cor, ifg_file))
-        cor_files = self._client.gather(cor_futures)
+        wait(cor_futures)
+        cor_files = [f.result() for f in cor_futures]
 
         return stitched_ifg_files, cor_files
 
@@ -421,11 +396,7 @@ class Workflow(YamlModel):
             )
 
         unwrap_futures = []
-        # Dask workers will kill the task
-        # https://dask.discourse.group/t/dask-workers-killed-because-of-heartbeat-fail/856/3
-        dask.config.set({"distributed.scheduler.worker-ttl": None})
         for ifg_file, cor_file in zip(ifg_files, cor_files):
-            # outfile = ifg_file.with_suffix(".unw")
             outfile = self.unw_dir / ifg_file.name.replace(".int", ".unw.tif")
             unwrapped_files.append(outfile)
             if outfile.exists():
@@ -446,19 +417,15 @@ class Workflow(YamlModel):
                 )
 
         # Add in the rest of the ones we ran
-        completed_procs = self._client.gather(unwrap_futures)
-        logger.info(f"Unwrapped {len(completed_procs)} interferograms.")
+        done, not_done = wait(unwrap_futures)
+        logger.info(f"Unwrapped {len(done)} interferograms.")
         # TODO: Maybe check the return codes here? or log the snaphu output?
         return unwrapped_files
 
     def _setup_workers(self):
-        # https://docs.dask.org/en/stable/array-best-practices.html#avoid-oversubscribing-threads
-        # Note that setting OMP_NUM_THREADS here to 1, but passing threads_per_worker
-        # to the dask Client does not seem to work for COMPASS.
-        # It will just use 1 threads.
-        os.environ["OMP_NUM_THREADS"] = str(self.threads_per_worker)
-        logger.info(f"Scaling dask cluster to {self.n_workers} workers")
-        self._client.cluster.scale(self.n_workers)
+        logger.info(f"Setting up {self.n_workers} workers for ThreadPoolExecutor")
+        set_num_threads(self.threads_per_worker)
+        self._client = ThreadPoolExecutor(max_workers=self.n_workers)
 
     @log_runtime
     def run(self, starting_step: int = 1):
@@ -471,25 +438,24 @@ class Workflow(YamlModel):
         if starting_step <= 1:
             dem_fut = self._download_dem()
             burst_db_fut = self._download_burst_db()
-            water_mask_fut = self._download_water_mask()
+            water_mask_future = self._download_water_mask()
             rslc_futures = self._download_rslcs()
-            # Use .parent of the .result() so that next step depends on the result
-            rslc_data_path = rslc_futures.result()[0].parent
-            orbit_futures = self._client.submit(
-                download_orbits, rslc_data_path, self.orbit_dir
+            orbits_future = self._client.submit(
+                download_orbits, self.asf_query.out_dir, self.orbit_dir
             )
             # Gather the futures once everything is downloaded
-            dem_file, burst_db_file = self._client.gather([dem_fut, burst_db_fut])
+            burst_db_file = burst_db_fut.result()
+            dem_file = dem_fut.result()
+            wait([water_mask_future])
+            wait([orbits_future])
             rslc_files = rslc_futures.result()
-            wait(water_mask_fut)
-            wait(orbit_futures)
 
         # Second step:
         if starting_step <= 2:
             if rslc_files is None:
                 rslc_files = self._get_existing_rslcs()
                 dem_file = self._dem_filename
-                burst_db_file = self._client.gather(self._download_burst_db())
+                burst_db_file = self._download_burst_db().result()
             gslc_files = self._geocode_slcs(rslc_files, dem_file, burst_db_file)
 
         if starting_step <= 3:
@@ -511,6 +477,8 @@ class Workflow(YamlModel):
             stitched_ifg_files, cor_files = self._get_existing_stitched_ifgs()
             logger.info(f"Found {len(stitched_ifg_files)} stitched ifgs")
 
+        # make sure we have the water mask
+        self._download_water_mask().result()
         unwrapped_files = self._unwrap_ifgs(stitched_ifg_files, cor_files)
 
         return unwrapped_files

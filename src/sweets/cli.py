@@ -126,7 +126,10 @@ def _get_cli_args() -> dict:
         "--n-workers",
         type=int,
         default=4,
-        help="Number of dask workers (processes) to use for parallel processing.",
+        help=(
+            "Number of background workers to use for parallel processing"
+            " GSLC/ifgs/unwrapping."
+        ),
     )
     base.add_argument(
         "-tpw",
@@ -134,7 +137,8 @@ def _get_cli_args() -> dict:
         type=int,
         default=16,
         help=(
-            "For each workers, number of threads to use (e.g. in numpy multithreading)."
+            "For each background worker, number of threads to use (e.g."
+            " OMP_NUM_THREADS, or in numpy multithreading)."
         ),
     )
     config_parser.set_defaults(func=create_config)
@@ -218,7 +222,7 @@ def create_config(kwargs: dict):
     if kwargs.pop("save_empty", False):
         Workflow.print_yaml_schema(outfile)
     else:
-        workflow = Workflow(**kwargs, start_dask=False)
+        workflow = Workflow(**kwargs)
         workflow.to_yaml(outfile)
 
 
