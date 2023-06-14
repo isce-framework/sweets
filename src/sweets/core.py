@@ -70,6 +70,10 @@ class Workflow(YamlModel):
         True,
         description="Run the unwrapping step for all interferograms.",
     )
+    compress_slcs: bool = Field(
+        False,
+        description="Run h5repack to compress GSLCs.",
+    )
 
     n_workers: int = Field(
         1,
@@ -297,7 +301,7 @@ class Workflow(YamlModel):
 
         # Use map to avoid a ThreadPoolExecutor deadlock
         new_files = self._client.map(
-            lambda f: run_geocode(f, log_dir=self.log_dir), todo
+            lambda f: run_geocode(f, log_dir=self.log_dir, compress=self.compress_slcs),
         )
         new_files = list(new_files)
         gslc_files.extend(new_files)
