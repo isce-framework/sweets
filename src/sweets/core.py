@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from concurrent.futures import Future, ThreadPoolExecutor, as_completed, wait
+from concurrent.futures import Future, ThreadPoolExecutor, wait
 from pathlib import Path
 from typing import Any, Optional
 
@@ -9,7 +9,7 @@ from dolphin import io, stitching, unwrap
 from dolphin.interferogram import Network
 from dolphin.utils import group_by_date, set_num_threads
 from dolphin.workflows import group_by_burst
-from dolphin.workflows.config import OPERA_DATASET_NAME, YamlModel
+from dolphin.workflows.config import OPERA_DATASET_NAME, OPERA_DATASET_ROOT, YamlModel
 from pydantic import Extra, Field, root_validator, validator
 from shapely import geometry, wkt
 
@@ -24,6 +24,8 @@ from .download import ASFQuery
 from .interferogram import InterferogramOptions, create_cor, create_ifg
 
 logger = get_log(__name__)
+
+UNW_SUFFIX = ".unw.tif"
 
 
 class Workflow(YamlModel):
@@ -181,6 +183,7 @@ class Workflow(YamlModel):
         # Track the directories that need to be created at start of workflow
         self.log_dir = self.work_dir / "logs"
         self.gslc_dir = self.work_dir / "gslcs"
+        self.geom_dir = self.work_dir / "geometry"
         self.ifg_dir = self.work_dir / "interferograms"
         self.stitched_ifg_dir = self.ifg_dir / "stitched"
         self.unw_dir = self.ifg_dir / "unwrapped"
@@ -204,6 +207,9 @@ class Workflow(YamlModel):
     # From step 2:
     def _get_existing_gslcs(self) -> list[Path]:
         return sorted(self.gslc_dir.glob("t*/*/t*.h5"))
+
+    def _get_burst_static_layers(self) -> list[Path]:
+        return sorted(self.gslc_dir.glob("t*/*/static_*.h5"))
 
     # From step 3:
     def _get_existing_burst_ifgs(self) -> list[Path]:
@@ -276,8 +282,8 @@ class Workflow(YamlModel):
             return f"{burst}_{date}.h5"
 
         # Check which ones we have without submitting a future
-        gslc_futures = []
         gslc_files = []
+        todo = []
         existing_paths = self._get_existing_gslcs()
         name_to_paths = {p.name: p for p in existing_paths}
         logger.info(f"Found {len(name_to_paths)} existing GSLC files")
@@ -287,16 +293,16 @@ class Workflow(YamlModel):
                 gslc_files.append(name_to_paths[name])
             else:
                 # Run the geocoding if we dont have it already
-                gslc_futures.append(
-                    self._client.submit(
-                        run_geocode,
-                        cfg_file,
-                        log_dir=self.log_dir,
-                    )
-                )
-        for f in as_completed(gslc_futures):
-            gslc_files.append(f.result())
-        return gslc_files
+                todo.append(cfg_file)
+
+        # Use map to avoid a ThreadPoolExecutor deadlock
+        new_files = self._client.map(
+            lambda f: run_geocode(f, log_dir=self.log_dir), todo
+        )
+        new_files = list(new_files)
+        gslc_files.extend(new_files)
+
+        return sorted(gslc_files)
 
     @log_runtime
     def _create_burst_interferograms(self, gslc_files):
@@ -354,18 +360,18 @@ class Workflow(YamlModel):
             outfile = self.stitched_ifg_dir / (io._format_date_pair(*dates) + ".int")
             stitched_ifg_files.append(outfile)
 
-            ifg_futures.append(
-                self._client.submit(
-                    stitching.merge_images,
-                    cur_images,
-                    outfile=outfile,
-                    driver="ENVI",
-                    out_bounds=self.bbox,
-                    out_bounds_epsg=4326,
-                    target_aligned_pixels=True,
-                    overwrite=self.overwrite,
-                )
+            # ifg_futures.append(
+            #     self._client.submit(
+            stitching.merge_images(
+                cur_images,
+                outfile=outfile,
+                driver="ENVI",
+                out_bounds=self.bbox,
+                out_bounds_epsg=4326,
+                target_aligned_pixels=True,
+                overwrite=self.overwrite,
             )
+            # )
         wait(ifg_futures)  # create ifg returns nothing
 
         # Also need to write out a temp correlation file for unwrapping
@@ -376,6 +382,62 @@ class Workflow(YamlModel):
         cor_files = [f.result() for f in cor_futures]
 
         return stitched_ifg_files, cor_files
+
+    @log_runtime
+    def _stitch_geometry(self, geom_path_list):
+        self.geom_dir.mkdir(parents=True, exist_ok=True)
+
+        file_list = []
+        # TODO: do I want to handle this missing data problem differently?
+        # if there's a burst with the 1st day missing so the static_layers_
+        # file is a different date... is that a problem?
+        for burst, files in group_by_burst(geom_path_list, minimum_images=1).items():
+            if len(files) > 1:
+                logger.warning(f"Found {len(files)} static_layers files for {burst}")
+            file_list.append(files[0])
+        logger.info(f"Stitching {len(file_list)} images.")
+
+        # Convert row/col looks to strides for the right shape
+        looks = self.interferogram_options.looks
+        strides = {"x": looks[1], "y": looks[0]}
+        stitched_geom_files = []
+        # local_incidence? needed by anyone?
+        datasets = ["heading", "incidence", "layover_shadow_mask"]
+        for ds_name in datasets:
+            outfile = self.geom_dir / f"{ds_name}.tif"
+            logger.info(f"Creating {outfile}")
+            stitched_geom_files.append(outfile)
+            # /science/SENTINEL1/CSLC/grids/static_layers
+            # TODO: this will change with the new product spec.
+            # we might also move this to dolphin if we do use the layers
+            ds_path = f"{OPERA_DATASET_ROOT}/CSLC/grids/static_layers/{ds_name}"
+            cur_files = [io.format_nc_filename(f, ds_name=ds_path) for f in file_list]
+
+            stitching.merge_images(
+                cur_files,
+                outfile=outfile,
+                driver="GTiff",
+                out_bounds=self.bbox,
+                out_bounds_epsg=4326,
+                target_aligned_pixels=True,
+                in_nodata=0,
+                strides=strides,
+                resample_alg="nearest",
+                overwrite=self.overwrite,
+            )
+
+        # Create the height (from dem) at the same resolution as the interferograms
+        height_file = self.geom_dir / "height.tif"
+        logger.info(f"Creating {height_file}")
+        stitched_geom_files.append(height_file)
+        stitching.warp_to_match(
+            input_file=self.dem_file,
+            match_file=stitched_geom_files[0],
+            output_file=height_file,
+            resample_alg="cubic",
+        )
+
+        return stitched_geom_files
 
     def _unwrap_ifgs(self, ifg_files, cor_files):
         unwrapped_files = []
@@ -397,7 +459,7 @@ class Workflow(YamlModel):
 
         unwrap_futures = []
         for ifg_file, cor_file in zip(ifg_files, cor_files):
-            outfile = self.unw_dir / ifg_file.name.replace(".int", ".unw.tif")
+            outfile = self.unw_dir / ifg_file.name.replace(".int", UNW_SUFFIX)
             unwrapped_files.append(outfile)
             if outfile.exists():
                 logger.info(f"Skipping {outfile}, already exists.")
@@ -458,6 +520,10 @@ class Workflow(YamlModel):
                 burst_db_file = self._download_burst_db().result()
             gslc_files = self._geocode_slcs(rslc_files, dem_file, burst_db_file)
 
+            geom_path_list = self._get_burst_static_layers()
+            logger.info(f"Found {len(geom_path_list)} burst static layers")
+            self._stitch_geometry(geom_path_list)
+
         if starting_step <= 3:
             if gslc_files is None:
                 gslc_files = self._get_existing_gslcs()
@@ -473,6 +539,7 @@ class Workflow(YamlModel):
                 logger.info(f"Found {len(ifg_path_list)} burst ifgs")
 
             stitched_ifg_files, cor_files = self._stitch_interferograms(ifg_path_list)
+
         else:
             stitched_ifg_files, cor_files = self._get_existing_stitched_ifgs()
             logger.info(f"Found {len(stitched_ifg_files)} stitched ifgs")

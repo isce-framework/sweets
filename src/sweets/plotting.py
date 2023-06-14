@@ -18,6 +18,7 @@ from numpy.typing import ArrayLike
 from shapely.geometry import Polygon, box
 
 from ._types import Filename
+from .core import UNW_SUFFIX
 
 
 def plot_ifg(
@@ -155,12 +156,12 @@ def browse_ifgs(
 
     # Check if we have unwrapped images
     unw_list = [
-        Path(str(i).replace("stitched", "unwrapped")).with_suffix(".unw")
+        Path(str(i).replace("stitched", "unwrapped")).with_suffix(UNW_SUFFIX)
         for i in file_list
     ]
     num_existing_unws = sum(f.exists() for f in unw_list)
     if num_existing_unws > 0:
-        print(f"Found {num_existing_unws} .unw files")
+        print(f"Found {num_existing_unws} {UNW_SUFFIX} files")
         num_panels += 1
 
     if amp_image is not None:
