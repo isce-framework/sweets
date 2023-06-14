@@ -302,6 +302,7 @@ def get_average_correlation(
     file_path: Filename,
     cor_ext: str = ".cor",
     output_name: Optional[Filename] = None,
+    mask_where_incomplete: bool = True,
 ) -> np.ndarray:
     """Get the average correlation from a directory of correlation files.
 
@@ -315,6 +316,8 @@ def get_average_correlation(
         Name of the output file.
         If not provided, outputs to "average_correlation.cor.tif" in the
         directory of `file_path`.
+    mask_where_incomplete : bool, optional
+        If True, will mask out pixels where the correlation is not present in all files.
 
     Returns
     -------
@@ -332,14 +335,20 @@ def get_average_correlation(
 
     cols, rows = get_raster_xysize(cor_files[0])
     avg_c = np.zeros((rows, cols), dtype=np.float32)
+    count = np.zeros((rows, cols), dtype=np.int32)
     for f in track(cor_files):
         cor = load_gdal(f)
         if avg_c is None:
             avg_c = cor
         else:
             avg_c += cor
+        count += np.logical_and(~np.isnan(cor), cor != 0)
     avg_c /= len(cor_files)
-    write_arr(arr=avg_c, like_filename=cor_files[0], output_name=output_name)
+    if mask_where_incomplete:
+        avg_c[count != len(cor_files)] = np.nan
+    write_arr(
+        arr=avg_c, like_filename=cor_files[0], output_name=output_name, nodata=np.nan
+    )
 
     return avg_c
 
