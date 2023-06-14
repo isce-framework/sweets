@@ -14,8 +14,9 @@ import rioxarray
 from compass.utils.helpers import bbox_to_utm
 from dask.distributed import Client
 from dolphin import utils
-from dolphin.io import DEFAULT_HDF5_OPTIONS
+from dolphin.io import DEFAULT_HDF5_OPTIONS, get_raster_xysize, load_gdal, write_arr
 from pydantic import BaseModel, Field, validator
+from rich.progress import track
 
 from ._log import get_log, log_runtime
 from ._types import Filename
@@ -295,6 +296,52 @@ def main():
         da1 = da.from_array(hf1[args.dset])
         da2 = da.from_array(hf2[args.dset])
         create_ifg(da1, da2, args.looks, outfile=args.outfile)
+
+
+def get_average_correlation(
+    file_path: Filename,
+    cor_ext: str = ".cor",
+    output_name: Optional[Filename] = None,
+) -> np.ndarray:
+    """Get the average correlation from a directory of correlation files.
+
+    Parameters
+    ----------
+    file_path : Filename
+        Path to the directory containing the correlation files.
+    cor_ext : str, optional
+        Extension of the correlation files, by default ".cor"
+    output_name : str, optional
+        Name of the output file.
+        If not provided, outputs to "average_correlation.cor.tif" in the
+        directory of `file_path`.
+
+    Returns
+    -------
+    np.ndarray
+        Average correlation array.
+    """
+    cor_files = sorted(Path(file_path).glob(f"*{cor_ext}"))
+    if not cor_files:
+        raise ValueError(f"No files found with {cor_ext} in {file_path}")
+    if output_name is None:
+        output_name = cor_files[0].parent / "average_correlation.cor.tif"
+
+    if Path(output_name).exists():
+        return load_gdal(output_name)
+
+    cols, rows = get_raster_xysize(cor_files[0])
+    avg_c = np.zeros((rows, cols), dtype=np.float32)
+    for f in track(cor_files):
+        cor = load_gdal(f)
+        if avg_c is None:
+            avg_c = cor
+        else:
+            avg_c += cor
+    avg_c /= len(cor_files)
+    write_arr(arr=avg_c, like_filename=cor_files[0], output_name=output_name)
+
+    return avg_c
 
 
 if __name__ == "__main__":
