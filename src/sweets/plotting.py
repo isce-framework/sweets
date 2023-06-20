@@ -102,6 +102,7 @@ def browse_ifgs(
     figsize: tuple[int, int] = (7, 4),
     vm_unw: float = 10,
     vm_cor: float = 1,
+    unw_suffix: str = UNW_SUFFIX,
     layout="horizontal",
     axes: Optional[plt.Axes] = None,
     ref_unw: Optional[tuple[float, float]] = None,
@@ -125,6 +126,8 @@ def browse_ifgs(
         Value used as min/max cutoff for unwrapped phase plot.
     vm_cor : float
         Value used as min/max cutoff for correlation phase plot.
+    unw_suffix : str, default = ".unw.tif"
+        Suffix to use to search for unwrapped phase images.
     layout : str
         Layout of the plot. Can be "horizontal" or "vertical".
     axes : matplotlib.pyplot.Axes
@@ -156,12 +159,12 @@ def browse_ifgs(
 
     # Check if we have unwrapped images
     unw_list = [
-        Path(str(i).replace("stitched", "unwrapped")).with_suffix(UNW_SUFFIX)
+        Path(str(i).replace("stitched", "unwrapped")).with_suffix(unw_suffix)
         for i in file_list
     ]
     num_existing_unws = sum(f.exists() for f in unw_list)
     if num_existing_unws > 0:
-        print(f"Found {num_existing_unws} {UNW_SUFFIX} files")
+        print(f"Found {num_existing_unws} {unw_suffix} files")
         num_panels += 1
 
     if amp_image is not None:
