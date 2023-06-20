@@ -435,7 +435,7 @@ class Workflow(YamlModel):
         logger.info(f"Creating {height_file}")
         stitched_geom_files.append(height_file)
         stitching.warp_to_match(
-            input_file=self.dem_file,
+            input_file=self._dem_filename,
             match_file=stitched_geom_files[0],
             output_file=height_file,
             resample_alg="cubic",
@@ -499,7 +499,6 @@ class Workflow(YamlModel):
         setup_nasa_netrc()
         self._setup_workers()
 
-        rslc_files = gslc_files = ifg_path_list = None
         # First step: data download
         if starting_step <= 1:
             dem_fut = self._download_dem()
@@ -511,42 +510,37 @@ class Workflow(YamlModel):
             )
             # Gather the futures once everything is downloaded
             burst_db_file = burst_db_fut.result()
-            dem_file = dem_fut.result()
+            dem_fut.result()
             wait([water_mask_future])
             wait([orbits_future])
             rslc_files = rslc_futures.result()
 
         # Second step:
         if starting_step <= 2:
-            if rslc_files is None:
-                rslc_files = self._get_existing_rslcs()
-                dem_file = self._dem_filename
-                burst_db_file = self._download_burst_db().result()
-            gslc_files = self._geocode_slcs(rslc_files, dem_file, burst_db_file)
+            rslc_files = self._get_existing_rslcs()
+            burst_db_file = self._download_burst_db().result()
+            self._geocode_slcs(rslc_files, self._dem_filename, burst_db_file)
 
             geom_path_list = self._get_burst_static_layers()
             logger.info(f"Found {len(geom_path_list)} burst static layers")
             self._stitch_geometry(geom_path_list)
 
         if starting_step <= 3:
-            if gslc_files is None:
-                gslc_files = self._get_existing_gslcs()
-                logger.info(
-                    f"Found {len(gslc_files)} existing GSLC files in {self.gslc_dir}"
-                )
-            ifg_path_list = self._create_burst_interferograms(gslc_files)
+            gslc_files = self._get_existing_gslcs()
+            logger.info(
+                f"Found {len(gslc_files)} existing GSLC files in {self.gslc_dir}"
+            )
+            self._create_burst_interferograms(gslc_files)
 
         if starting_step <= 4:
-            if ifg_path_list is None:
-                logger.info(f"Searching for existing burst ifgs in {self.ifg_dir}")
-                ifg_path_list = self._get_existing_burst_ifgs()
-                logger.info(f"Found {len(ifg_path_list)} burst ifgs")
+            logger.info(f"Searching for existing burst ifgs in {self.ifg_dir}")
+            ifg_path_list = self._get_existing_burst_ifgs()
+            logger.info(f"Found {len(ifg_path_list)} burst ifgs")
 
-            stitched_ifg_files, cor_files = self._stitch_interferograms(ifg_path_list)
+            self._stitch_interferograms(ifg_path_list)
 
-        else:
-            stitched_ifg_files, cor_files = self._get_existing_stitched_ifgs()
-            logger.info(f"Found {len(stitched_ifg_files)} stitched ifgs")
+        stitched_ifg_files, cor_files = self._get_existing_stitched_ifgs()
+        logger.info(f"Found {len(stitched_ifg_files)} stitched ifgs")
 
         # make sure we have the water mask
         self._download_water_mask().result()

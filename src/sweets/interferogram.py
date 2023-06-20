@@ -329,7 +329,7 @@ def get_average_correlation(
         raise ValueError(f"No files found with {cor_ext} in {file_path}")
     if output_name is None:
         output_name = cor_files[0].parent / "average_correlation.cor.tif"
-
+    count_output_name = Path(output_name).parent / "average_correlation_count.tif"
     if Path(output_name).exists():
         return load_gdal(output_name)
 
@@ -338,16 +338,18 @@ def get_average_correlation(
     count = np.zeros((rows, cols), dtype=np.int32)
     for f in track(cor_files):
         cor = load_gdal(f)
-        if avg_c is None:
-            avg_c = cor
-        else:
-            avg_c += cor
-        count += np.logical_and(~np.isnan(cor), cor != 0)
+        cor_masked = np.ma.masked_invalid(cor)
+        avg_c += cor_masked
+        bad_mask = np.logical_or(cor_masked.mask, cor_masked == 0)
+        count[~bad_mask] += 1
     avg_c /= len(cor_files)
     if mask_where_incomplete:
         avg_c[count != len(cor_files)] = np.nan
     write_arr(
         arr=avg_c, like_filename=cor_files[0], output_name=output_name, nodata=np.nan
+    )
+    write_arr(
+        arr=count, like_filename=cor_files[0], output_name=count_output_name, nodata=0
     )
 
     return avg_c
