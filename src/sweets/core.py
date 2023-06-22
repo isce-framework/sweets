@@ -300,9 +300,8 @@ class Workflow(YamlModel):
                 todo.append(cfg_file)
 
         # Use map to avoid a ThreadPoolExecutor deadlock
-        new_files = self._client.map(
-            lambda f: run_geocode(f, log_dir=self.log_dir, compress=self.compress_slcs),
-        )
+        new_files = self._client.map( lambda f: run_geocode(f, log_dir=self.log_dir, compress=self.compress_slcs), todo)
+        
         new_files = list(new_files)
         gslc_files.extend(new_files)
 
