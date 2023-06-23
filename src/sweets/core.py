@@ -300,8 +300,11 @@ class Workflow(YamlModel):
                 todo.append(cfg_file)
 
         # Use map to avoid a ThreadPoolExecutor deadlock
-        new_files = self._client.map( lambda f: run_geocode(f, log_dir=self.log_dir, compress=self.compress_slcs), todo)
-        
+        new_files = self._client.map(
+            lambda f: run_geocode(f, log_dir=self.log_dir, compress=self.compress_slcs),
+            todo,
+        )
+
         new_files = list(new_files)
         gslc_files.extend(new_files)
 
@@ -410,10 +413,10 @@ class Workflow(YamlModel):
             outfile = self.geom_dir / f"{ds_name}.tif"
             logger.info(f"Creating {outfile}")
             stitched_geom_files.append(outfile)
+            # Used to be:
             # /science/SENTINEL1/CSLC/grids/static_layers
-            # TODO: this will change with the new product spec.
             # we might also move this to dolphin if we do use the layers
-            ds_path = f"{OPERA_DATASET_ROOT}/CSLC/grids/static_layers/{ds_name}"
+            ds_path = f"{OPERA_DATASET_ROOT}/{ds_name}"
             cur_files = [io.format_nc_filename(f, ds_name=ds_path) for f in file_list]
 
             stitching.merge_images(

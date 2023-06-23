@@ -15,6 +15,7 @@ from compass.utils.helpers import bbox_to_utm
 from dask.distributed import Client
 from dolphin import utils
 from dolphin.io import DEFAULT_HDF5_OPTIONS, get_raster_xysize, load_gdal, write_arr
+from dolphin.workflows.config import OPERA_DATASET_NAME
 from pydantic import BaseModel, Field, validator
 from rich.progress import track
 
@@ -269,7 +270,7 @@ def _get_cli_args():
     parser.add_argument(
         "--slcs", nargs=2, metavar=("ref_slc_file", "sec_slc_file"), required=True
     ),
-    parser.add_argument("--dset", default="science/SENTINEL1/CSLC/grids/VV")
+    parser.add_argument("--dset", default=OPERA_DATASET_NAME)
     parser.add_argument("-l", "--looks", type=int, nargs=2, default=(1, 1))
     parser.add_argument(
         "-o",

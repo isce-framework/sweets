@@ -69,7 +69,7 @@ find "$input_dir" -name "t[0-9]*.h5" | xargs --max-args 1 --max-procs $max_procs
     # Extract the filename and form the GDAL string
     filename=$(basename -- "$1")
     filename="${filename%.*}"
-    gdal_str="DERIVED_SUBDATASET:LOGAMPLITUDE:NETCDF:$1:\"science/SENTINEL1/CSLC/grids/VV\""
+    gdal_str="DERIVED_SUBDATASET:LOGAMPLITUDE:NETCDF:$1:\"data/VV\""
     output_file="$2/${filename}.tif"
     echo "$gdal_str -> $output_file"
 
