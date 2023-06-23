@@ -15,6 +15,7 @@ from compass.utils.helpers import bbox_to_utm
 from dask.distributed import Client
 from dolphin import utils
 from dolphin.io import DEFAULT_HDF5_OPTIONS, get_raster_xysize, load_gdal, write_arr
+from dolphin.workflows.config import OPERA_DATASET_NAME
 from pydantic import BaseModel, Field, validator
 from rich.progress import track
 
@@ -269,7 +270,7 @@ def _get_cli_args():
     parser.add_argument(
         "--slcs", nargs=2, metavar=("ref_slc_file", "sec_slc_file"), required=True
     ),
-    parser.add_argument("--dset", default="science/SENTINEL1/CSLC/grids/VV")
+    parser.add_argument("--dset", default=OPERA_DATASET_NAME)
     parser.add_argument("-l", "--looks", type=int, nargs=2, default=(1, 1))
     parser.add_argument(
         "-o",
@@ -329,7 +330,7 @@ def get_average_correlation(
         raise ValueError(f"No files found with {cor_ext} in {file_path}")
     if output_name is None:
         output_name = cor_files[0].parent / "average_correlation.cor.tif"
-
+    count_output_name = Path(output_name).parent / "average_correlation_count.tif"
     if Path(output_name).exists():
         return load_gdal(output_name)
 
@@ -338,16 +339,18 @@ def get_average_correlation(
     count = np.zeros((rows, cols), dtype=np.int32)
     for f in track(cor_files):
         cor = load_gdal(f)
-        if avg_c is None:
-            avg_c = cor
-        else:
-            avg_c += cor
-        count += np.logical_and(~np.isnan(cor), cor != 0)
+        cor_masked = np.ma.masked_invalid(cor)
+        avg_c += cor_masked
+        bad_mask = np.logical_or(cor_masked.mask, cor_masked == 0)
+        count[~bad_mask] += 1
     avg_c /= len(cor_files)
     if mask_where_incomplete:
         avg_c[count != len(cor_files)] = np.nan
     write_arr(
         arr=avg_c, like_filename=cor_files[0], output_name=output_name, nodata=np.nan
+    )
+    write_arr(
+        arr=count, like_filename=cor_files[0], output_name=count_output_name, nodata=0
     )
 
     return avg_c

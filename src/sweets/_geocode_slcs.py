@@ -44,7 +44,7 @@ def run_geocode(
     Path
         Path of geocoded HDF5 file.
     """
-    cfg = GeoRunConfig.load_from_yaml(run_config_path, "s1_cslc_geo")
+    cfg = GeoRunConfig.load_from_yaml(str(run_config_path), "s1_cslc_geo")
 
     burst_id_tup, params = list(cfg.output_paths.items())[0]
     # Need to load the config to get the output paths
