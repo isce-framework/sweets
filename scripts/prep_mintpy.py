@@ -173,8 +173,7 @@ def prepare_metadata(meta_file, int_file, nlks_x=1, nlks_y=1):
     crs = io.get_raster_crs(int_file)
     meta["EPSG"] = crs.to_epsg()
 
-    # TODO: this dataset will turn into /metadata/processing_information in next release
-    processing_ds = f"{OPERA_DATASET_ROOT}/CSLC/metadata/processing_information"
+    processing_ds = f"{OPERA_DATASET_ROOT}/metadata/processing_information"
 
     meta["WAVELENGTH"] = meta_compass[f"{processing_ds}/s1_burst_metadata/wavelength"][
         ()
@@ -209,7 +208,7 @@ def prepare_metadata(meta_file, int_file, nlks_x=1, nlks_y=1):
         ()
     ].decode("utf-8")
     meta["ORBIT_DIRECTION"] = meta_compass[
-        "science/SENTINEL1/CSLC/metadata/orbit/orbit_direction"
+        f"{OPERA_DATASET_ROOT}/metadata/orbit/orbit_direction"
     ][()].decode("utf-8")
     meta["ALOOKS"] = 1
     meta["RLOOKS"] = 1
