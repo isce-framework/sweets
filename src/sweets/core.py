@@ -70,6 +70,10 @@ class Workflow(YamlModel):
         True,
         description="Run the unwrapping step for all interferograms.",
     )
+    slc_posting: tuple[float, float] = Field(
+        (10, 5),
+        description="Spacing of geocoded SLCs (in meters) along the (y, x)-directions.",
+    )
     compress_slcs: bool = Field(
         False,
         description="Run h5repack to compress GSLCs.",
@@ -273,6 +277,8 @@ class Workflow(YamlModel):
             dem_file=dem_file,
             orbit_dir=self.orbit_dir,
             bbox=self.bbox,
+            y_posting=self.slc_posting[0],
+            x_posting=self.slc_posting[1],
             out_dir=self.gslc_dir,
             overwrite=self.overwrite,
             using_zipped=not self.asf_query.unzip,
@@ -309,6 +315,62 @@ class Workflow(YamlModel):
         gslc_files.extend(new_files)
 
         return sorted(gslc_files)
+
+    @log_runtime
+    def _stitch_geometry(self, geom_path_list):
+        self.geom_dir.mkdir(parents=True, exist_ok=True)
+
+        file_list = []
+        # TODO: do I want to handle this missing data problem differently?
+        # if there's a burst with the 1st day missing so the static_layers_
+        # file is a different date... is that a problem?
+        for burst, files in group_by_burst(geom_path_list, minimum_images=1).items():
+            if len(files) > 1:
+                logger.warning(f"Found {len(files)} static_layers files for {burst}")
+            file_list.append(files[0])
+        logger.info(f"Stitching {len(file_list)} images.")
+
+        # Convert row/col looks to strides for the right shape
+        looks = self.interferogram_options.looks
+        strides = {"x": looks[1], "y": looks[0]}
+        stitched_geom_files = []
+        # local_incidence? needed by anyone?
+        datasets = ["heading", "incidence", "layover_shadow_mask"]
+        for ds_name in datasets:
+            outfile = self.geom_dir / f"{ds_name}.tif"
+            logger.info(f"Creating {outfile}")
+            stitched_geom_files.append(outfile)
+            # Used to be:
+            # /science/SENTINEL1/CSLC/grids/static_layers
+            # we might also move this to dolphin if we do use the layers
+            ds_path = f"{OPERA_DATASET_ROOT}/data/{ds_name}"
+            cur_files = [io.format_nc_filename(f, ds_name=ds_path) for f in file_list]
+
+            stitching.merge_images(
+                cur_files,
+                outfile=outfile,
+                driver="GTiff",
+                out_bounds=self.bbox,
+                out_bounds_epsg=4326,
+                target_aligned_pixels=True,
+                in_nodata=0,
+                strides=strides,
+                resample_alg="nearest",
+                overwrite=self.overwrite,
+            )
+
+        # Create the height (from dem) at the same resolution as the interferograms
+        height_file = self.geom_dir / "height.tif"
+        logger.info(f"Creating {height_file}")
+        stitched_geom_files.append(height_file)
+        stitching.warp_to_match(
+            input_file=self._dem_filename,
+            match_file=stitched_geom_files[0],
+            output_file=height_file,
+            resample_alg="cubic",
+        )
+
+        return stitched_geom_files
 
     @log_runtime
     def _create_burst_interferograms(self, gslc_files):
@@ -388,62 +450,6 @@ class Workflow(YamlModel):
         cor_files = [f.result() for f in cor_futures]
 
         return stitched_ifg_files, cor_files
-
-    @log_runtime
-    def _stitch_geometry(self, geom_path_list):
-        self.geom_dir.mkdir(parents=True, exist_ok=True)
-
-        file_list = []
-        # TODO: do I want to handle this missing data problem differently?
-        # if there's a burst with the 1st day missing so the static_layers_
-        # file is a different date... is that a problem?
-        for burst, files in group_by_burst(geom_path_list, minimum_images=1).items():
-            if len(files) > 1:
-                logger.warning(f"Found {len(files)} static_layers files for {burst}")
-            file_list.append(files[0])
-        logger.info(f"Stitching {len(file_list)} images.")
-
-        # Convert row/col looks to strides for the right shape
-        looks = self.interferogram_options.looks
-        strides = {"x": looks[1], "y": looks[0]}
-        stitched_geom_files = []
-        # local_incidence? needed by anyone?
-        datasets = ["heading", "incidence", "layover_shadow_mask"]
-        for ds_name in datasets:
-            outfile = self.geom_dir / f"{ds_name}.tif"
-            logger.info(f"Creating {outfile}")
-            stitched_geom_files.append(outfile)
-            # Used to be:
-            # /science/SENTINEL1/CSLC/grids/static_layers
-            # we might also move this to dolphin if we do use the layers
-            ds_path = f"{OPERA_DATASET_ROOT}/{ds_name}"
-            cur_files = [io.format_nc_filename(f, ds_name=ds_path) for f in file_list]
-
-            stitching.merge_images(
-                cur_files,
-                outfile=outfile,
-                driver="GTiff",
-                out_bounds=self.bbox,
-                out_bounds_epsg=4326,
-                target_aligned_pixels=True,
-                in_nodata=0,
-                strides=strides,
-                resample_alg="nearest",
-                overwrite=self.overwrite,
-            )
-
-        # Create the height (from dem) at the same resolution as the interferograms
-        height_file = self.geom_dir / "height.tif"
-        logger.info(f"Creating {height_file}")
-        stitched_geom_files.append(height_file)
-        stitching.warp_to_match(
-            input_file=self._dem_filename,
-            match_file=stitched_geom_files[0],
-            output_file=height_file,
-            resample_alg="cubic",
-        )
-
-        return stitched_geom_files
 
     def _unwrap_ifgs(self, ifg_files, cor_files):
         unwrapped_files = []
