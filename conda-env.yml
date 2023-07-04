@@ -23,6 +23,6 @@ dependencies:
   - lxml    # extra from COMPASS
   - yamale  # extra from COMPASS
   - pip:
-    - git+https://github.com/opera-adt/s1-reader.git
+    - git+https://github.com/isce-framework/s1-reader.git
     - git+https://github.com/opera-adt/COMPASS.git
     - git+https://github.com/opera-adt/dolphin.git
