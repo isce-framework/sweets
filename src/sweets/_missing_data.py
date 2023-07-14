@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import os
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from functools import reduce
 from math import nan
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional, Sequence
 
 import geopandas as gpd
 import matplotlib.pyplot as plt
@@ -15,9 +16,13 @@ from dolphin.workflows._utils import get_cslc_polygon
 from osgeo import gdal
 from shapely import intersection_all, union_all
 
+from sweets._log import get_log
+
+logger = get_log(__name__)
+
 
 def get_geodataframe(
-    gslc_files: list[Filename], max_workers: int = 5
+    gslc_files: Sequence[Filename], max_workers: int = 5
 ) -> gpd.GeoDataFrame:
     """Get a GeoDataFrame of the CSLC footprints.
 
@@ -39,27 +44,34 @@ def get_geodataframe(
     return gdf
 
 
-def get_common_dates(*, gslc_files: list[Filename] = None, gdf=None) -> list[str]:
+def get_common_dates(
+    *, gslc_files: Optional[Sequence[Filename]] = None, gdf=None
+) -> list[str]:
+    """Get the date common to all GSLCs."""
     if gdf is None:
+        if gslc_files is None:
+            raise ValueError("Need `gdf` or `gslc_files`")
         gdf = get_geodataframe(gslc_files)
 
-    grouped = get_per_burst_df(gdf)
+    grouped_by_burst = _get_per_burst_df(gdf)
     common_dates = list(
         reduce(
-            lambda x, y: x.intersection(set(y)), grouped.date[1:], set(grouped.date[0])
+            lambda x, y: x.intersection(set(y)),  # type: ignore
+            grouped_by_burst.date[1:],
+            set(grouped_by_burst.date[0]),
         )
     )
     return pd.Series(common_dates).dt.strftime("%Y%m%d").tolist()
 
 
-def filter_gslcs_by_common_dates(gslc_files: list[Filename]) -> list[Path]:
-    common_datestrs = get_common_dates(gslc_files)
+def _filter_gslcs_by_common_dates(gslc_files: list[Filename]) -> list[Path]:
+    common_datestrs = get_common_dates(gslc_files=gslc_files)
     return [
         Path(p) for p in gslc_files if any(d in Path(p).stem for d in common_datestrs)
     ]
 
 
-def get_per_burst_df(
+def _get_per_burst_df(
     gdf: gpd.GeoDataFrame, how: str = "intersection"
 ) -> gpd.GeoDataFrame:
     func = union_all if how == "union" else intersection_all
@@ -73,17 +85,15 @@ def get_per_burst_df(
 def plot_count_per_burst(
     *,
     gdf: Optional[gpd.GeoDataFrame] = None,
-    gslc_files: Optional[list[Filename]] = None,
+    gslc_files: Optional[Sequence[Filename]] = None,
     ax: Optional[plt.Axes] = None,
 ) -> None:
-    try:
-        import proplot as plt
-    except ImportError:
-        pass
-
+    """Plot the number of GSLC files found per burst."""
     if gdf is None:
+        if gslc_files is None:
+            raise ValueError("Need `gdf` or `gslc_files`")
         gdf = get_geodataframe(gslc_files)
-    gdf_grouped = get_per_burst_df(gdf)
+    gdf_grouped = _get_per_burst_df(gdf)
 
     if ax is None:
         fig, ax = plt.subplots(ncols=1)
@@ -107,6 +117,7 @@ def plot_mini_timeseries(
     vm: float = 5,
     save_to: str = "mini_timeseries",
 ):
+    """Plot a mintpy timeseries file heavily subsampled for a quick check."""
     import h5py
     import numpy as np
 
@@ -201,18 +212,20 @@ def is_valid(filename: Filename) -> tuple[bool, str]:
 def get_bad_files(
     path: Filename,
     ext: str = ".int",
-    valid_threshold: float = 0.6,
+    pct_valid_threshold: float = 60,
     max_jobs: int = 20,
 ) -> tuple[list[Path], list[Stats]]:
     """Check all files in `path` for (partially) invalid rasters."""
-    files = sorted(Path(path).glob(f"*.{ext}"))
+    files = sorted(Path(path).glob(f"*{ext}"))
+    logger.info(f"Searching {len(files)} in {path} with extension {ext}")
+
     with ThreadPoolExecutor(max_jobs) as exc:
         stats = list(exc.map(get_raster_stats, files))
 
     bad_files = [
-        (f, s) for (f, s) in zip(files, stats) if s.pct_valid < valid_threshold
+        (f, s) for (f, s) in zip(files, stats) if s.pct_valid < pct_valid_threshold
     ]
-    if not bad_files:
+    if len(bad_files) == 0:
         return [], []
     out_files, out_stats = list(zip(*bad_files))
     return out_files, out_stats  # type: ignore
