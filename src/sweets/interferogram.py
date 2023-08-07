@@ -163,7 +163,7 @@ def _form_ifg(
         (row looks, column looks)
     outfile : Filename
         Output file to write to.
-        Supported file types are .h5 and .int (binary)
+        Supported file types are .tif, .h5 and .int (binary)
     ref_filename : str, optional
         Reference filename where the geo metadata comes from, by default None
 
@@ -188,12 +188,16 @@ def _form_ifg(
         ifg = (numer / denom).astype("complex64")
 
     # TODO: do I care to save it as ENVI? I don't think so.
-    if Path(outfile).suffix == ".tif":
+    suffix = Path(outfile).suffix
+    if suffix in (".tif", ".int"):
         # Make sure we didn't lose the geo information
         ifg.rio.write_crs(da1.rio.crs, inplace=True)
         ifg.rio.write_nodata(float("NaN"), inplace=True)
 
-        ifg.rio.to_raster(outfile, tiled=True)
+        if suffix == ".tif":
+            ifg.rio.to_raster(outfile, tiled=True)
+        else:
+            ifg.rio.to_raster(outfile, driver="ENVI")
 
         # Since each multi-looked burst will be small, just load into memory.
         # ifg_np = ifg.compute()
