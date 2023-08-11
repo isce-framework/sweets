@@ -76,7 +76,6 @@ def _get_deps_info() -> dict[str, Optional[str]]:
         "numba",
         "osgeo.gdal",
         "h5py",
-        "ruamel_yaml",
         "pydantic",
         "rioxarray",
         "setuptools",
