@@ -18,11 +18,6 @@ from ._types import Filename
 
 logger = get_log(__name__)
 
-# TODO: do i ever care to change these?
-X_POSTING = 5
-Y_POSTING = 10
-POL = "co-pol"
-
 
 def run_geocode(
     run_config_path: Filename, compress: bool = True, log_dir: Filename = Path(".")
@@ -35,7 +30,11 @@ def run_geocode(
         Path to the run config file.
     compress : bool
         If true, will compress the output HDF5 file.
-    log_dir : Filename
+    x_posting : float, default = 5
+        Spacing of geocoded SLCs (in meters) along the x-direction.
+    y_posting : float, default = 10
+        Spacing of geocoded SLCs (in meters) along the y-direction.
+    log_dir : Filename, default = "."
         Directory to store the log files.
         Log file is named `s1_geocode_slc_{burst_id}_{date}.log` within log_dir.
 
@@ -98,6 +97,7 @@ def repack_and_compress(
 
     logger.debug(f"Copying {slc_file} to {temp_out}, zeroing mantissa")
     shutil.copy(slc_file, temp_out)
+    dset_name = f"/{dset_name.lstrip('/')}"
     with h5py.File(temp_out, "r+") as hf:
         dset = hf[dset_name]
         data = dset[:]
@@ -126,8 +126,9 @@ def create_config_files(
     dem_file: Filename,
     orbit_dir: Filename,
     bbox: Optional[Tuple[float, ...]] = None,
-    x_posting: int = X_POSTING,
-    y_posting: int = Y_POSTING,
+    x_posting: float = 5,
+    y_posting: float = 10,
+    pol_type: str = "co-pol",
     out_dir: Filename = Path("gslcs"),
     overwrite: bool = False,
     using_zipped: bool = False,
@@ -149,10 +150,12 @@ def create_config_files(
         Note that this does not change each burst's bounding box, but
         limits which bursts are used (skipped if they don't overlap).
         By default None (process all bursts in zip file for all files)
-    x_posting : int, optional
+    x_posting : float, optional
         X posting (in meters) of geocoded output, by default 5 m.
-    y_posting : int, optional
+    y_posting : float, optional
         Y posting (in meters) of geocoded output, by default 10 m.
+    pol_type : str, choices = {"co-pol", "cross-pol"}
+        Type of polarization to process.
     out_dir : Filename, optional
         Directory to store geocoded results, by default Path("gslcs")
     overwrite : bool, optional
@@ -184,7 +187,7 @@ def create_config_files(
         work_dir=fspath(out_dir),
         burst_db_file=fspath(burst_db_file),
         bbox=bbox,
-        pol=POL,
+        pol=pol_type,
         x_spac=x_posting,
         y_spac=y_posting,
         using_zipped=using_zipped,

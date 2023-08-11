@@ -2,8 +2,9 @@
 ############################################################
 # Program is part of MintPy                                #
 # Copyright (c) 2013, Zhang Yunjun, Heresh Fattahi         #
-# Author: Talib Oliver Cabrerra                            #
+# Author: Talib Oliver Cabrerra, Scott Staniewicz          #
 ############################################################
+
 
 import argparse
 import datetime
@@ -15,6 +16,7 @@ from pathlib import Path
 
 import h5py
 import numpy as np
+import pyproj
 from dolphin import io
 from dolphin.utils import full_suffix, get_dates
 from dolphin.workflows.config import OPERA_DATASET_ROOT
@@ -53,7 +55,7 @@ EXAMPLE = """example:
 
 def _create_parser():
     parser = argparse.ArgumentParser(
-        description="Prepare SWEETS products for MintPy",
+        description="Prepare Sweets products for MintPy",
         formatter_class=argparse.RawTextHelpFormatter,
         epilog=EXAMPLE,
     )
@@ -173,27 +175,28 @@ def prepare_metadata(meta_file, int_file, nlks_x=1, nlks_y=1):
     crs = io.get_raster_crs(int_file)
     meta["EPSG"] = crs.to_epsg()
 
-    processing_ds = f"{OPERA_DATASET_ROOT}/metadata/processing_information"
+    if "/science" in meta_compass:
+        root = "/science/SENTINEL1/CSLC"
+        processing_ds = f"{root}/metadata/processing_information"
+        burst_ds = f"{processing_ds}/s1_burst_metadata"
+        if burst_ds not in meta_compass:
+            burst_ds = f"{processing_ds}/input_burst_metadata"
+    else:
+        root = OPERA_DATASET_ROOT
+        processing_ds = f"{root}/metadata/processing_information"
+        burst_ds = f"{processing_ds}/input_burst_metadata"
 
-    meta["WAVELENGTH"] = meta_compass[f"{processing_ds}/s1_burst_metadata/wavelength"][
-        ()
-    ]
-    meta["RANGE_PIXEL_SIZE"] = meta_compass[
-        f"{processing_ds}/s1_burst_metadata/range_pixel_spacing"
-    ][()]
+    meta["WAVELENGTH"] = meta_compass[f"{burst_ds}/wavelength"][()]
+    meta["RANGE_PIXEL_SIZE"] = meta_compass[f"{burst_ds}/range_pixel_spacing"][()]
     meta["AZIMUTH_PIXEL_SIZE"] = 14.1
     meta["EARTH_RADIUS"] = 6371000.0
 
     t0 = datetime.datetime.strptime(
-        meta_compass[f"{processing_ds}/s1_burst_metadata/sensing_start"][()].decode(
-            "utf-8"
-        ),
+        meta_compass[f"{burst_ds}/sensing_start"][()].decode("utf-8"),
         "%Y-%m-%d %H:%M:%S.%f",
     )
     t1 = datetime.datetime.strptime(
-        meta_compass[f"{processing_ds}/s1_burst_metadata/sensing_stop"][()].decode(
-            "utf-8"
-        ),
+        meta_compass[f"{burst_ds}/sensing_stop"][()].decode("utf-8"),
         "%Y-%m-%d %H:%M:%S.%f",
     )
     t_mid = t0 + (t1 - t0) / 2.0
@@ -201,15 +204,11 @@ def prepare_metadata(meta_file, int_file, nlks_x=1, nlks_y=1):
         t_mid - datetime.datetime(t_mid.year, t_mid.month, t_mid.day)
     ).total_seconds()
     meta["HEIGHT"] = 750000.0
-    meta["STARTING_RANGE"] = meta_compass[
-        f"{processing_ds}/s1_burst_metadata/starting_range"
-    ][()]
-    meta["PLATFORM"] = meta_compass[f"{processing_ds}/s1_burst_metadata/platform_id"][
+    meta["STARTING_RANGE"] = meta_compass[f"{burst_ds}/starting_range"][()]
+    meta["PLATFORM"] = meta_compass[f"{burst_ds}/platform_id"][()].decode("utf-8")
+    meta["ORBIT_DIRECTION"] = meta_compass[f"{root}/metadata/orbit/orbit_direction"][
         ()
     ].decode("utf-8")
-    meta["ORBIT_DIRECTION"] = meta_compass[
-        f"{OPERA_DATASET_ROOT}/metadata/orbit/orbit_direction"
-    ][()].decode("utf-8")
     meta["ALOOKS"] = 1
     meta["RLOOKS"] = 1
 
@@ -223,6 +222,100 @@ def prepare_metadata(meta_file, int_file, nlks_x=1, nlks_y=1):
         meta["ALOOKS"] = str(float(meta["ALOOKS"]) * nlks_y)
 
     return meta
+
+
+def _get_xy_arrays(atr):
+    x0 = float(atr["X_FIRST"])
+    y0 = float(atr["Y_FIRST"])
+    x_step = float(atr["X_STEP"])
+    y_step = float(atr["Y_STEP"])
+    rows = int(atr["LENGTH"])
+    cols = int(atr["WIDTH"])
+    x_arr = x0 + x_step * np.arange(cols)
+    y_arr = y0 + y_step * np.arange(rows)
+    # Shift by half pixel to get the centers
+    x_arr += x_step / 2
+    y_arr += y_step / 2
+    return x_arr, y_arr
+
+
+def write_coordinate_system(
+    filename, dset_name, xy_dim_names=("x", "y"), grid_mapping_dset="spatial_ref"
+):
+    """Write the coordinate system CF metadata to an existing HDF5 file."""
+    x_dim_name, y_dim_name = xy_dim_names
+    atr = readfile.read_attribute(filename)
+    epsg = int(atr.get("EPSG", 4326))
+
+    with h5py.File(filename, "a") as hf:
+        crs = pyproj.CRS.from_user_input(epsg)
+        dset = hf[dset_name]
+
+        # Setup the dataset holding the SRS information
+        srs_dset = hf.require_dataset(grid_mapping_dset, shape=(), dtype=int)
+        srs_dset.attrs.update(crs.to_cf())
+        dset.attrs["grid_mapping"] = grid_mapping_dset
+
+        if "date" in hf:
+            date_arr = [
+                datetime.datetime.strptime(ds, "%Y%m%d")
+                for ds in hf["date"][()].astype(str)
+            ]
+            days_since = [(d - date_arr[0]).days for d in date_arr]
+            dt_dim = hf.create_dataset("time", data=days_since)
+            dt_dim.make_scale()
+            cf_attrs = dict(
+                units=f"days since {str(date_arr[0])}", calendar="proleptic_gregorian"
+            )
+            dt_dim.attrs.update(cf_attrs)
+            dset.dims[0].attach_scale(dt_dim)
+            dset.dims[0].label = "time"
+        else:
+            dt_dim = date_arr = None
+            # If we want to do something other than time as a 3rd dimension...
+            #  We'll need to figure out what other valid dims there are
+            # otherwise, we can just do `phony_dims="sort"` in xarray
+
+        # add metadata to x,y coordinates
+        is_projected = crs.is_projected
+        is_geographic = crs.is_geographic
+        x_arr, y_arr = _get_xy_arrays(atr)
+        x_dim_dset = hf.create_dataset(x_dim_name, data=x_arr)
+        x_dim_dset.make_scale(x_dim_name)
+        y_dim_dset = hf.create_dataset(y_dim_name, data=y_arr)
+        y_dim_dset.make_scale(y_dim_name)
+
+        x_coord_attrs = {}
+        x_coord_attrs["axis"] = "X"
+        y_coord_attrs = {}
+        y_coord_attrs["axis"] = "Y"
+        if is_projected:
+            units = "meter"
+            # X metadata
+            x_coord_attrs["long_name"] = "x coordinate of projection"
+            x_coord_attrs["standard_name"] = "projection_x_coordinate"
+            x_coord_attrs["units"] = units
+            # Y metadata
+            y_coord_attrs["long_name"] = "y coordinate of projection"
+            y_coord_attrs["standard_name"] = "projection_y_coordinate"
+            y_coord_attrs["units"] = units
+        elif is_geographic:
+            # X metadata
+            x_coord_attrs["long_name"] = "longitude"
+            x_coord_attrs["standard_name"] = "longitude"
+            x_coord_attrs["units"] = "degrees_east"
+            # Y metadata
+            y_coord_attrs["long_name"] = "latitude"
+            y_coord_attrs["standard_name"] = "latitude"
+            y_coord_attrs["units"] = "degrees_north"
+        y_dim_dset.attrs.update(y_coord_attrs)
+        x_dim_dset.attrs.update(x_coord_attrs)
+
+        ndim = dset.ndim
+        dset.dims[ndim - 1].attach_scale(x_dim_dset)
+        dset.dims[ndim - 2].attach_scale(y_dim_dset)
+        dset.dims[ndim - 1].label = x_dim_name
+        dset.dims[ndim - 2].label = y_dim_name
 
 
 def _get_date_pairs(filenames):
@@ -319,8 +412,8 @@ def prepare_geometry(outfile, geom_dir, metadata, box, water_mask_file=None):
 
     file_to_path = {
         "height": geom_path / "height.tif",
-        "incidenceAngle": geom_path / "incidence.tif",
-        "azimuthAngle": geom_path / "heading.tif",
+        "incidenceAngle": geom_path / "incidence_angle.tif",
+        "azimuthAngle": geom_path / "heading_angle.tif",
         "shadowMask": geom_path / "layover_shadow_mask.tif",
     }
 
@@ -504,14 +597,11 @@ def main(iargs=None):
     for dname in [inps.outDir, os.path.join(inps.outDir, "inputs")]:
         os.makedirs(dname, exist_ok=True)
 
-    # output filename
-    # tcoh_file    = os.path.join(inps.outDir, 'temporalCoherence.h5')
-    # ps_mask_file = os.path.join(inps.outDir, 'maskPS.h5')
     stack_file = os.path.join(inps.outDir, "inputs/ifgramStack.h5")
     ts_file = os.path.join(inps.outDir, "timeseries.h5")
 
     if inps.single_reference:
-        # 2 - time-series (if inputs are all single-reference)
+        # time-series (if inputs are all single-reference)
         prepare_timeseries(
             outfile=ts_file,
             unw_files=unw_files,
@@ -520,20 +610,7 @@ def main(iargs=None):
             baseline_dir=inps.baselineDir,
         )
 
-    # 3 - temporal coherence and mask for PS (from fringe)
-    # prepare_temporal_coherence(
-    #     outfile=tcoh_file,
-    #     infile=inps.cohFile,
-    #     metadata=meta,
-    #     box=None)
-
-    # prepare_ps_mask(
-    #     outfile=ps_mask_file,
-    #     infile=inps.psMaskFile,
-    #     metadata=meta,
-    #     box=None)
-
-    # 4 - prepare and ifgstack with connected components
+    # prepare ifgstack with connected components
     prepare_stack(
         outfile=stack_file,
         unw_files=unw_files,
