@@ -175,8 +175,16 @@ def prepare_metadata(meta_file, int_file, nlks_x=1, nlks_y=1):
     crs = io.get_raster_crs(int_file)
     meta["EPSG"] = crs.to_epsg()
 
-    processing_ds = f"{OPERA_DATASET_ROOT}/metadata/processing_information"
-    burst_ds = f"{processing_ds}/input_burst_metadata"
+    if "/science" in meta_compass:
+        root = "/science/SENTINEL1/CSLC"
+        processing_ds = f"{root}/metadata/processing_information"
+        burst_ds = f"{processing_ds}/s1_burst_metadata"
+        if burst_ds not in meta_compass:
+            burst_ds = f"{processing_ds}/input_burst_metadata"
+    else:
+        root = OPERA_DATASET_ROOT
+        processing_ds = f"{root}/metadata/processing_information"
+        burst_ds = f"{processing_ds}/input_burst_metadata"
 
     meta["WAVELENGTH"] = meta_compass[f"{burst_ds}/wavelength"][()]
     meta["RANGE_PIXEL_SIZE"] = meta_compass[f"{burst_ds}/range_pixel_spacing"][()]
@@ -198,9 +206,9 @@ def prepare_metadata(meta_file, int_file, nlks_x=1, nlks_y=1):
     meta["HEIGHT"] = 750000.0
     meta["STARTING_RANGE"] = meta_compass[f"{burst_ds}/starting_range"][()]
     meta["PLATFORM"] = meta_compass[f"{burst_ds}/platform_id"][()].decode("utf-8")
-    meta["ORBIT_DIRECTION"] = meta_compass[
-        f"{OPERA_DATASET_ROOT}/metadata/orbit/orbit_direction"
-    ][()].decode("utf-8")
+    meta["ORBIT_DIRECTION"] = meta_compass[f"{root}/metadata/orbit/orbit_direction"][
+        ()
+    ].decode("utf-8")
     meta["ALOOKS"] = 1
     meta["RLOOKS"] = 1
 
@@ -589,14 +597,11 @@ def main(iargs=None):
     for dname in [inps.outDir, os.path.join(inps.outDir, "inputs")]:
         os.makedirs(dname, exist_ok=True)
 
-    # output filename
-    # tcoh_file    = os.path.join(inps.outDir, 'temporalCoherence.h5')
-    # ps_mask_file = os.path.join(inps.outDir, 'maskPS.h5')
     stack_file = os.path.join(inps.outDir, "inputs/ifgramStack.h5")
     ts_file = os.path.join(inps.outDir, "timeseries.h5")
 
     if inps.single_reference:
-        # 2 - time-series (if inputs are all single-reference)
+        # time-series (if inputs are all single-reference)
         prepare_timeseries(
             outfile=ts_file,
             unw_files=unw_files,
@@ -605,20 +610,7 @@ def main(iargs=None):
             baseline_dir=inps.baselineDir,
         )
 
-    # 3 - temporal coherence and mask for PS (from fringe)
-    # prepare_temporal_coherence(
-    #     outfile=tcoh_file,
-    #     infile=inps.cohFile,
-    #     metadata=meta,
-    #     box=None)
-
-    # prepare_ps_mask(
-    #     outfile=ps_mask_file,
-    #     infile=inps.psMaskFile,
-    #     metadata=meta,
-    #     box=None)
-
-    # 4 - prepare and ifgstack with connected components
+    # prepare ifgstack with connected components
     prepare_stack(
         outfile=stack_file,
         unw_files=unw_files,
