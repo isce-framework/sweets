@@ -97,6 +97,7 @@ def repack_and_compress(
 
     logger.debug(f"Copying {slc_file} to {temp_out}, zeroing mantissa")
     shutil.copy(slc_file, temp_out)
+    dset_name = f"/{dset_name.lstrip('/')}"
     with h5py.File(temp_out, "r+") as hf:
         dset = hf[dset_name]
         data = dset[:]
@@ -127,6 +128,7 @@ def create_config_files(
     bbox: Optional[Tuple[float, ...]] = None,
     x_posting: float = 5,
     y_posting: float = 10,
+    pol_type: str = "co-pol",
     out_dir: Filename = Path("gslcs"),
     overwrite: bool = False,
     using_zipped: bool = False,
@@ -152,6 +154,8 @@ def create_config_files(
         X posting (in meters) of geocoded output, by default 5 m.
     y_posting : float, optional
         Y posting (in meters) of geocoded output, by default 10 m.
+    pol_type : str, choices = {"co-pol", "cross-pol"}
+        Type of polarization to process.
     out_dir : Filename, optional
         Directory to store geocoded results, by default Path("gslcs")
     overwrite : bool, optional
@@ -183,7 +187,7 @@ def create_config_files(
         work_dir=fspath(out_dir),
         burst_db_file=fspath(burst_db_file),
         bbox=bbox,
-        pol="co-pol",
+        pol=pol_type,
         x_spac=x_posting,
         y_spac=y_posting,
         using_zipped=using_zipped,

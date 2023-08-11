@@ -1,15 +1,17 @@
 from __future__ import annotations
 
-from concurrent.futures import Future, ThreadPoolExecutor, wait
+from concurrent.futures import Future, ProcessPoolExecutor, ThreadPoolExecutor, wait
+from functools import partial
 from pathlib import Path
 from typing import Any, Optional
 
+import h5py
 import numpy as np
 from dolphin import io, stitching, unwrap
 from dolphin.interferogram import Network
 from dolphin.utils import group_by_date, set_num_threads
 from dolphin.workflows import group_by_burst
-from dolphin.workflows.config import OPERA_DATASET_NAME, OPERA_DATASET_ROOT, YamlModel
+from dolphin.workflows.config import OPERA_DATASET_ROOT, YamlModel
 from pydantic import Extra, Field, root_validator, validator
 from shapely import geometry, wkt
 
@@ -73,6 +75,11 @@ class Workflow(YamlModel):
     slc_posting: tuple[float, float] = Field(
         (10, 5),
         description="Spacing of geocoded SLCs (in meters) along the (y, x)-directions.",
+    )
+    pol_type: str = Field(
+        # TODO: Make it an Enum
+        "co-pol",
+        description="Type of polarization to process for GSLCs",
     )
     compress_slcs: bool = Field(
         False,
@@ -270,6 +277,7 @@ class Workflow(YamlModel):
 
     @log_runtime
     def _geocode_slcs(self, slc_files, dem_file, burst_db_file):
+        set_num_threads(self.threads_per_worker)
         self.log_dir.mkdir(parents=True, exist_ok=True)
         compass_cfg_files = create_config_files(
             slc_dir=slc_files[0].parent,
@@ -279,6 +287,7 @@ class Workflow(YamlModel):
             bbox=self.bbox,
             y_posting=self.slc_posting[0],
             x_posting=self.slc_posting[1],
+            pol_type=self.pol_type,
             out_dir=self.gslc_dir,
             overwrite=self.overwrite,
             using_zipped=not self.asf_query.unzip,
@@ -305,11 +314,11 @@ class Workflow(YamlModel):
                 # Run the geocoding if we dont have it already
                 todo.append(cfg_file)
 
-        # Use map to avoid a ThreadPoolExecutor deadlock
-        new_files = self._client.map(
-            lambda f: run_geocode(f, log_dir=self.log_dir, compress=self.compress_slcs),
-            todo,
+        run_func = partial(
+            run_geocode, log_dir=self.log_dir, compress=self.compress_slcs
         )
+        with ProcessPoolExecutor(max_workers=self.n_workers) as _client:
+            new_files = _client.map(run_func, todo)
 
         new_files = list(new_files)
         gslc_files.extend(new_files)
@@ -335,7 +344,7 @@ class Workflow(YamlModel):
         strides = {"x": looks[1], "y": looks[0]}
         stitched_geom_files = []
         # local_incidence? needed by anyone?
-        datasets = ["heading", "incidence", "layover_shadow_mask"]
+        datasets = ["heading_angle", "incidence_angle", "layover_shadow_mask"]
         for ds_name in datasets:
             outfile = self.geom_dir / f"{ds_name}.tif"
             logger.info(f"Creating {outfile}")
@@ -372,6 +381,16 @@ class Workflow(YamlModel):
 
         return stitched_geom_files
 
+    @staticmethod
+    def _get_subdataset(f):
+        if not (str(f).endswith(".h5") or str(f).endswith(".nc")):
+            return ""
+        with h5py.File(f) as hf:
+            for pol_str in ["VV", "HV", "VH", "HH"]:
+                dset = f"/data/{pol_str}"
+                if dset in hf:
+                    return dset
+
     @log_runtime
     def _create_burst_interferograms(self, gslc_files):
         # Group the SLCs by burst:
@@ -380,6 +399,7 @@ class Workflow(YamlModel):
         burst_to_ifg = group_by_burst(self._get_existing_burst_ifgs())
         ifg_path_list = []
         for burst, gslc_files in burst_to_gslc.items():
+            subdatasets = [self._get_subdataset(f) for f in gslc_files]
             outdir = self.ifg_dir / burst
             outdir.mkdir(parents=True, exist_ok=True)
             network = Network(
@@ -387,7 +407,7 @@ class Workflow(YamlModel):
                 outdir=outdir,
                 max_temporal_baseline=self.interferogram_options.max_temporal_baseline,
                 max_bandwidth=self.interferogram_options.max_bandwidth,
-                subdataset=OPERA_DATASET_NAME,
+                subdataset=subdatasets,
                 write=False,
             )
             logger.info(
@@ -399,21 +419,21 @@ class Workflow(YamlModel):
                 ifg_path_list.extend(cur_existing)
             else:
                 ifg_futures = []
-                for vrt_ifg in network.ifg_list:
-                    outfile = vrt_ifg.path.with_suffix(".tif")
-                    ifg_fut = self._client.submit(
-                        create_ifg,
-                        vrt_ifg.ref_slc,
-                        vrt_ifg.sec_slc,
-                        outfile,
-                        looks=self.interferogram_options.looks,
-                    )
+                with ThreadPoolExecutor(max_workers=self.n_workers) as _client:
+                    for vrt_ifg in network.ifg_list:
+                        outfile = vrt_ifg.path.with_suffix(".tif")
+                        ifg_fut = _client.submit(
+                            create_ifg,
+                            vrt_ifg.ref_slc,
+                            vrt_ifg.sec_slc,
+                            outfile,
+                            looks=self.interferogram_options.looks,
+                        )
 
-                    ifg_futures.append(ifg_fut)
+                        ifg_futures.append(ifg_fut)
 
-                wait(ifg_futures)
-                for fut in ifg_futures:
-                    ifg_path_list.append(fut.result())
+                    for fut in ifg_futures:
+                        ifg_path_list.append(fut.result())
 
         return ifg_path_list
 
@@ -422,14 +442,11 @@ class Workflow(YamlModel):
         self.stitched_ifg_dir.mkdir(parents=True, exist_ok=True)
         grouped_images = group_by_date(ifg_path_list)
         stitched_ifg_files = []
-        ifg_futures = []
         for dates, cur_images in grouped_images.items():
             logger.info(f"{dates}: Stitching {len(cur_images)} images.")
             outfile = self.stitched_ifg_dir / (io._format_date_pair(*dates) + ".int")
             stitched_ifg_files.append(outfile)
 
-            # ifg_futures.append(
-            #     self._client.submit(
             stitching.merge_images(
                 cur_images,
                 outfile=outfile,
@@ -439,15 +456,10 @@ class Workflow(YamlModel):
                 target_aligned_pixels=True,
                 overwrite=self.overwrite,
             )
-            # )
-        wait(ifg_futures)  # create ifg returns nothing
 
         # Also need to write out a temp correlation file for unwrapping
-        cor_futures = []
-        for ifg_file in stitched_ifg_files:
-            cor_futures.append(self._client.submit(create_cor, ifg_file))
-        wait(cor_futures)
-        cor_files = [f.result() for f in cor_futures]
+        with ProcessPoolExecutor(max_workers=self.n_workers) as _client:
+            cor_files = list(_client.map(create_cor, stitched_ifg_files))
 
         return stitched_ifg_files, cor_files
 
@@ -469,16 +481,15 @@ class Workflow(YamlModel):
                 output_file=self._warped_water_mask,
             )
 
-        unwrap_futures = []
-        for ifg_file, cor_file in zip(ifg_files, cor_files):
-            outfile = self.unw_dir / ifg_file.name.replace(".int", UNW_SUFFIX)
-            unwrapped_files.append(outfile)
-            if outfile.exists():
-                logger.info(f"Skipping {outfile}, already exists.")
-            else:
-                logger.info(f"Unwrapping {ifg_file} to {outfile}")
-                unwrap_futures.append(
-                    self._client.submit(
+        ifg_to_future = {}
+        with ProcessPoolExecutor(max_workers=self.n_workers) as _client:
+            for ifg_file, cor_file in zip(ifg_files, cor_files):
+                outfile = self.unw_dir / ifg_file.name.replace(".int", UNW_SUFFIX)
+                unwrapped_files.append(outfile)
+                if outfile.exists():
+                    logger.info(f"Skipping {outfile}, already exists.")
+                else:
+                    ifg_to_future[ifg_file] = _client.submit(
                         unwrap.unwrap,
                         ifg_filename=ifg_file,
                         corr_filename=cor_file,
@@ -488,45 +499,43 @@ class Workflow(YamlModel):
                         # do_tile=False,  # Probably make this an option too
                         init_method="mst",  # TODO: make this an option?
                     )
-                )
 
-        # Add in the rest of the ones we ran
-        done, not_done = wait(unwrap_futures)
-        logger.info(f"Unwrapped {len(done)} interferograms.")
+            # Add in the rest of the ones we ran
+            for ifg_file, f in ifg_to_future.items():
+                logger.info(f"Unwrapping {ifg_file}")
+                f.result()
         # TODO: Maybe check the return codes here? or log the snaphu output?
         return unwrapped_files
-
-    def _setup_workers(self):
-        logger.info(f"Setting up {self.n_workers} workers for ThreadPoolExecutor")
-        set_num_threads(self.threads_per_worker)
-        self._client = ThreadPoolExecutor(max_workers=self.n_workers)
 
     @log_runtime
     def run(self, starting_step: int = 1):
         """Run the workflow."""
         setup_nasa_netrc()
-        self._setup_workers()
 
         # First step: data download
+        set_num_threads(self.threads_per_worker)
+        logger.info(f"Setting up {self.n_workers} workers for ThreadPoolExecutor")
         if starting_step <= 1:
-            dem_fut = self._download_dem()
-            burst_db_fut = self._download_burst_db()
-            water_mask_future = self._download_water_mask()
-            rslc_futures = self._download_rslcs()
-            orbits_future = self._client.submit(
-                download_orbits, self.asf_query.out_dir, self.orbit_dir
-            )
-            # Gather the futures once everything is downloaded
-            burst_db_file = burst_db_fut.result()
-            dem_fut.result()
-            wait([water_mask_future])
-            wait([orbits_future])
-            rslc_files = rslc_futures.result()
+            with ThreadPoolExecutor(max_workers=self.n_workers) as _client:
+                self._client = _client
+                dem_fut = self._download_dem()
+                burst_db_fut = self._download_burst_db()
+                water_mask_future = self._download_water_mask()
+                rslc_futures = self._download_rslcs()
+                orbits_future = self._client.submit(
+                    download_orbits, self.asf_query.out_dir, self.orbit_dir
+                )
+                # Gather the futures once everything is downloaded
+                burst_db_file = burst_db_fut.result()
+                dem_fut.result()
+                wait([water_mask_future])
+                wait([orbits_future])
+                rslc_files = rslc_futures.result()
 
         # Second step:
         if starting_step <= 2:
+            burst_db_file = get_burst_db()
             rslc_files = self._get_existing_rslcs()
-            burst_db_file = self._download_burst_db().result()
             self._geocode_slcs(rslc_files, self._dem_filename, burst_db_file)
 
             geom_path_list = self._get_burst_static_layers()
@@ -551,7 +560,7 @@ class Workflow(YamlModel):
         logger.info(f"Found {len(stitched_ifg_files)} stitched ifgs")
 
         # make sure we have the water mask
-        self._download_water_mask().result()
+        create_water_mask(self._water_mask_filename, self._dem_bbox)
         unwrapped_files = self._unwrap_ifgs(stitched_ifg_files, cor_files)
 
         return unwrapped_files
