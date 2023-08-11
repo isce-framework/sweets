@@ -1,17 +1,13 @@
 from __future__ import annotations
 
 import shutil
-import subprocess
 from os import fspath
 from pathlib import Path
-from typing import List, Optional, Sequence, Tuple
+from typing import List, Optional, Tuple
 
-import h5py
 import journal
-import numpy as np
 from compass import s1_geocode_slc, s1_geocode_stack
 from compass.utils.geo_runconfig import GeoRunConfig
-from dolphin.workflows.config import OPERA_DATASET_NAME
 
 from ._log import get_log
 from ._types import Filename
@@ -19,17 +15,13 @@ from ._types import Filename
 logger = get_log(__name__)
 
 
-def run_geocode(
-    run_config_path: Filename, compress: bool = True, log_dir: Filename = Path(".")
-) -> Path:
+def run_geocode(run_config_path: Filename, log_dir: Filename = Path(".")) -> Path:
     """Run a single geocoding workflow on an SLC.
 
     Parameters
     ----------
     run_config_path : Filename
         Path to the run config file.
-    compress : bool
-        If true, will compress the output HDF5 file.
     x_posting : float, default = 5
         Spacing of geocoded SLCs (in meters) along the x-direction.
     y_posting : float, default = 10
@@ -59,65 +51,12 @@ def run_geocode(
         journal.info("isce").device = journal.logfile(fspath(logfile), "w")
 
         s1_geocode_slc.run(cfg)
-        if compress:
-            logger.info(f"Compressing {outfile}...")
-            repack_and_compress(outfile)
     else:
         logger.info(
             f"Skipping geocoding for {run_config_path}, {outfile} already exists."
         )
 
     return outfile
-
-
-def repack_and_compress(
-    slc_file: Filename,
-    gzip: int = 4,
-    chunks: Sequence[int] = (128, 128),
-    outfile: Optional[Filename] = None,
-    overwrite: bool = True,
-    dset_name=OPERA_DATASET_NAME,
-):
-    """Chunk output product and compress it."""
-    temp_out = str(slc_file).replace(".h5", "_zeroed.h5")
-    outfile = outfile or str(slc_file).replace(".h5", "_repacked.h5")
-
-    def zero_mantissa(data, bits_to_keep=10):
-        float32_mantissa_bits = 23
-        nzero = float32_mantissa_bits - bits_to_keep
-        # Make all ones
-        allbits = (1 << 32) - 1
-
-        bitmask = (allbits << nzero) & allbits
-        dr = data.real.view(np.uint32)
-        dr &= bitmask
-        di = data.imag.view(np.uint32)
-        di &= bitmask
-        return data
-
-    logger.debug(f"Copying {slc_file} to {temp_out}, zeroing mantissa")
-    shutil.copy(slc_file, temp_out)
-    dset_name = f"/{dset_name.lstrip('/')}"
-    with h5py.File(temp_out, "r+") as hf:
-        dset = hf[dset_name]
-        data = dset[:]
-
-        data = zero_mantissa(data)
-        dset[:] = data
-
-    cmd = (
-        f"h5repack -f {dset_name}:SHUF -l {dset_name}:CHUNK={chunks[0]}x{chunks[1]} -f"
-        f" {dset_name}:GZIP={gzip} {temp_out} {outfile}"
-    )
-    logger.debug(cmd)
-
-    # h5repack is very chatty with it's logging
-    subprocess.run(cmd, shell=True, check=True, stdout=subprocess.DEVNULL)
-    # move back to overwrite
-    Path(temp_out).unlink()
-
-    if overwrite:
-        shutil.move(fspath(outfile), fspath(slc_file))
 
 
 def create_config_files(

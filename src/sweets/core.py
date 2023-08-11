@@ -81,10 +81,6 @@ class Workflow(YamlModel):
         "co-pol",
         description="Type of polarization to process for GSLCs",
     )
-    compress_slcs: bool = Field(
-        False,
-        description="Run h5repack to compress GSLCs.",
-    )
 
     n_workers: int = Field(
         1,
@@ -314,9 +310,7 @@ class Workflow(YamlModel):
                 # Run the geocoding if we dont have it already
                 todo.append(cfg_file)
 
-        run_func = partial(
-            run_geocode, log_dir=self.log_dir, compress=self.compress_slcs
-        )
+        run_func = partial(run_geocode, log_dir=self.log_dir)
         with ProcessPoolExecutor(max_workers=self.n_workers) as _client:
             new_files = _client.map(run_func, todo)
 
