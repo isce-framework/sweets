@@ -273,7 +273,6 @@ class Workflow(YamlModel):
 
     @log_runtime
     def _geocode_slcs(self, slc_files, dem_file, burst_db_file):
-        set_num_threads(self.threads_per_worker)
         self.log_dir.mkdir(parents=True, exist_ok=True)
         compass_cfg_files = create_config_files(
             slc_dir=slc_files[0].parent,
@@ -337,8 +336,8 @@ class Workflow(YamlModel):
         looks = self.interferogram_options.looks
         strides = {"x": looks[1], "y": looks[0]}
         stitched_geom_files = []
-        # local_incidence? needed by anyone?
-        datasets = ["heading_angle", "incidence_angle", "layover_shadow_mask"]
+        # local_incidence_angle needed by anyone?
+        datasets = ["los_east", "los_north", "layover_shadow_mask"]
         for ds_name in datasets:
             outfile = self.geom_dir / f"{ds_name}.tif"
             logger.info(f"Creating {outfile}")
@@ -505,9 +504,13 @@ class Workflow(YamlModel):
     def run(self, starting_step: int = 1):
         """Run the workflow."""
         setup_nasa_netrc()
+        try:
+            set_num_threads(self.threads_per_worker)
+        except OSError:
+            # https://github.com/pyre/pyre/issues/108 , will go away soon
+            set_num_threads(self.threads_per_worker)
 
         # First step: data download
-        set_num_threads(self.threads_per_worker)
         logger.info(f"Setting up {self.n_workers} workers for ThreadPoolExecutor")
         if starting_step <= 1:
             with ThreadPoolExecutor(max_workers=self.n_workers) as _client:

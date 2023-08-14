@@ -1,4 +1,6 @@
 # sweets
+[![pre-commit.ci status](https://results.pre-commit.ci/badge/github/isce-framework/sweets/main.svg)](https://results.pre-commit.ci/latest/github/isce-framework/sweets/main)
+
 Workflow for creating unwrapped interferograms from Sentinel-1 geocoded SLCs.
 
 
@@ -53,7 +55,7 @@ from sweets.core import Workflow
 bbox = (-102.3407 31.9909 -101.9407 32.3909)
 start = "2020-01-01"  # can be strings or datetime objects
 track = 78
-w = Workflow(bbox=bbox, start=start, start=start, track=track)
+w = Workflow(bbox=bbox, asf_query=dict(start=start, start=start, relativeOrbit=track))
 w.run()
 ```
 
