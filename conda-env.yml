@@ -32,7 +32,7 @@ dependencies:
   - h5py
   - numpy
   - pandas
-  - pydantic
+  - pydantic<2
   - requests
   - rich
   - rioxarray

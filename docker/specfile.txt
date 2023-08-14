@@ -147,7 +147,7 @@ https://conda.anaconda.org/conda-forge/linux-64/proj-9.2.1-ha643af7_0.conda#e992
 https://conda.anaconda.org/conda-forge/linux-64/psutil-5.9.5-py311h2582759_0.conda#a90f8e278c1cd7064b2713e6b7db87e6
 https://conda.anaconda.org/conda-forge/linux-64/pthread-stubs-0.4-h36c2ea0_1001.tar.bz2#22dad4df6e8630e8dff2428f6f6a7036
 https://conda.anaconda.org/conda-forge/linux-64/pyarrow-12.0.1-py311h39c9aba_8_cpu.conda#587370a25bb2c50cce90909ce20d38b8
-https://conda.anaconda.org/conda-forge/linux-64/pydantic-core-2.4.0-py311h46250e7_0.conda#5611c9159d7f75735e73ca0c1b75f8b2
+https://conda.anaconda.org/conda-forge/linux-64/pydantic-1.10.12-py311h459d7ec_1.conda#301a0653cbd495afa7e6212c0c556d67
 https://conda.anaconda.org/conda-forge/linux-64/pyproj-3.6.0-py311ha169711_1.conda#92633556d37e88ce45193374d408072c
 https://conda.anaconda.org/conda-forge/linux-64/pyre-1.12.1-py311hd0a87c1_0.conda#fe415beace7f7185763887736f438f71
 https://conda.anaconda.org/conda-forge/linux-64/pysolid-0.3.0-py311hca9a023_0.conda#66042388447a6c03a3c3bf45ce2fb7d6
@@ -191,7 +191,6 @@ https://conda.anaconda.org/conda-forge/linux-64/zlib-1.2.13-hd590300_5.conda#68c
 https://conda.anaconda.org/conda-forge/linux-64/zlib-ng-2.0.7-h0b41bf4_0.conda#49e8329110001f04923fe7e864990b0c
 https://conda.anaconda.org/conda-forge/linux-64/zstd-1.5.2-hfc55251_7.conda#32ae18eb2a687912fc9e92a501c0a11b
 https://conda.anaconda.org/conda-forge/noarch/affine-2.4.0-pyhd8ed1ab_0.conda#ae5f4ad87126c55ba3f690ef07f81d64
-https://conda.anaconda.org/conda-forge/noarch/annotated-types-0.5.0-pyhd8ed1ab_0.conda#578ae086f225bc2380c79f3b551ff2f7
 https://conda.anaconda.org/conda-forge/noarch/attrs-23.1.0-pyh71513ae_1.conda#3edfead7cedd1ab4400a6c588f3e75f8
 https://conda.anaconda.org/conda-forge/noarch/backoff-2.2.1-pyhd8ed1ab_0.tar.bz2#4600709bd85664d8606ae0c76642f8db
 https://conda.anaconda.org/conda-forge/noarch/bokeh-3.2.2-pyhd8ed1ab_0.conda#30488151f591379db656250b3f5fc0c6
@@ -241,7 +240,6 @@ https://conda.anaconda.org/conda-forge/noarch/pip-23.2.1-pyhd8ed1ab_0.conda#e278
 https://conda.anaconda.org/conda-forge/noarch/platformdirs-3.10.0-pyhd8ed1ab_0.conda#0809187ef9b89a3d94a5c24d13936236
 https://conda.anaconda.org/conda-forge/noarch/pooch-1.7.0-pyha770c72_3.conda#5936894aade8240c867d292aa0d980c6
 https://conda.anaconda.org/conda-forge/noarch/poppler-data-0.4.12-hd8ed1ab_0.conda#d8d7293c5b37f39b2ac32940621c6592
-https://conda.anaconda.org/conda-forge/noarch/pydantic-2.1.1-pyhd8ed1ab_0.conda#7964a624018707909044b509f58b937a
 https://conda.anaconda.org/conda-forge/noarch/pygments-2.16.1-pyhd8ed1ab_0.conda#40e5cb18165466773619e5c963f00a7b
 https://conda.anaconda.org/conda-forge/noarch/pymp-pypi-0.4.5-pyhd8ed1ab_0.tar.bz2#3d56b4c5a162223b9f20cef1fdc8a89a
 https://conda.anaconda.org/conda-forge/noarch/pyparsing-3.1.1-pyhd8ed1ab_0.conda#176f7d56f0cfe9008bdf1bccd7de02fb
