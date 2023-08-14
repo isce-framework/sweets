@@ -6,16 +6,37 @@ dependencies:
   - pip>=21.3  # https://pip.pypa.io/en/stable/reference/build-system/pyproject-toml/#editable-installation
   - git  # for pip install, due to setuptools_scm
   - aria2 # ASF Downloading
-  - gdal>=3.3
-  - geopandas>=0.12.0
-  - h5py>=3.6
-  - numpy>=1.20
-  - pandas>=1.5
-  - pydantic>=1.10,<2
-  - requests>=2.20
-  - rich>=12.0
-  - rioxarray>=0.13
-  - sardem>=0.11.3
-  - sentineleof>=0.7.0
-  - shapely>=1.8
-  - dask>=2022.6.0
+  # - isce3>=0.14.0
+  # - compass>=0.4.0
+  # - dask>=2022.6.0
+  # - dolphin>=0.2.0
+  # - gdal>=3.5
+  # - geopandas-base>=0.12.0
+  # - h5py>=3.6
+  # - numpy>=1.20
+  # - pandas>=1.5
+  # - pydantic>=1.10,<2
+  # - requests>=2.20
+  # - rich>=12.0
+  # - rioxarray>=0.13
+  # - s1reader>=0.2.0
+  # - sardem>=0.11.3
+  # - sentineleof>=0.7.0
+  # - shapely>=1.8
+  - isce3
+  - compass
+  - dask
+  - dolphin
+  - gdal
+  - geopandas-base
+  - h5py
+  - numpy
+  - pandas
+  - pydantic
+  - requests
+  - rich
+  - rioxarray
+  - s1reader
+  - sardem
+  - sentineleof
+  - shapely
