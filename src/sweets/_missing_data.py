@@ -6,15 +6,15 @@ from dataclasses import dataclass
 from functools import reduce
 from math import nan
 from pathlib import Path
-from typing import Optional, Sequence
+from typing import Optional, Sequence, Union
 
 import geopandas as gpd
+import h5py
 import matplotlib.pyplot as plt
 import pandas as pd
 from dolphin._types import Filename
-from dolphin.workflows._utils import get_cslc_polygon
 from osgeo import gdal
-from shapely import intersection_all, union_all
+from shapely import geometry, intersection_all, union_all, wkt
 
 from sweets._log import get_log
 
@@ -42,6 +42,27 @@ def get_geodataframe(
     gdf["date"] = pd.to_datetime(gdf.filename.str.split("_").str[3])
     gdf["burst_id"] = gdf.filename.str[:15]
     return gdf
+
+
+def get_cslc_polygon(
+    opera_file: Filename, buffer_degrees: float = 0.0
+) -> Union[geometry.Polygon, None]:
+    """Get the union of the bounding polygons of the given files.
+
+    Parameters
+    ----------
+    opera_file : list[Filename]
+        list of COMPASS SLC filenames.
+    buffer_degrees : float, optional
+        Buffer the polygons by this many degrees, by default 0.0
+    """
+    dset_name = "/identification/bounding_polygon"
+    with h5py.File(opera_file) as hf:
+        if dset_name not in hf:
+            logger.debug(f"Could not find {dset_name} in {opera_file}")
+            return None
+        wkt_str = hf[dset_name][()].decode("utf-8")
+    return wkt.loads(wkt_str).buffer(buffer_degrees)
 
 
 def get_common_dates(
