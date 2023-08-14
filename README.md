@@ -1,4 +1,6 @@
 # sweets
+[![pre-commit.ci status](https://results.pre-commit.ci/badge/github/isce-framework/sweets/main.svg)](https://results.pre-commit.ci/latest/github/isce-framework/sweets/main)
+
 Workflow for creating unwrapped interferograms from Sentinel-1 geocoded SLCs.
 
 
