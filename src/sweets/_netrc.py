@@ -19,11 +19,9 @@ def setup_nasa_netrc(netrc_file: Filename = "~/.netrc"):
         if not has_correct_permission:
             # User has a netrc file, but it's not set up correctly
             console.print(
-                (
-                    "Your ~/.netrc file does not have the correct"
-                    " permissions.\n[underline]Changing permissions to 0600"
-                    " (read/write for user only)."
-                ),
+                "Your ~/.netrc file does not have the correct"
+                " permissions.\n[underline]Changing permissions to 0600"
+                " (read/write for user only).",
                 style="bold",
             )
             os.chmod(netrc_file, 0o600)
