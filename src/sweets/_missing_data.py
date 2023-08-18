@@ -11,6 +11,7 @@ from typing import Optional, Sequence, Union
 import geopandas as gpd
 import h5py
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 from dolphin._types import Filename
 from osgeo import gdal
@@ -139,9 +140,6 @@ def plot_mini_timeseries(
     save_to: str = "mini_timeseries",
 ):
     """Plot a mintpy timeseries file heavily subsampled for a quick check."""
-    import h5py
-    import numpy as np
-
     with h5py.File(ts_file, "a") as hf:
         dates = np.array(hf["date"]).astype(str)
         if save_to in hf:
@@ -155,14 +153,7 @@ def plot_mini_timeseries(
     nrows = ntotal // ncols if (ntotal % ncols == 0) else ntotal // ncols + 1
     figsize = (ncols * 0.6, nrows * 0.6)
 
-    try:
-        import proplot as plt
-
-        fig, axes = plt.subplots(nrows=nrows, ncols=ncols, refwidth=0.5)
-    except ImportError:
-        import matplotlib.pyplot as plt
-
-        fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=figsize)
+    fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=figsize)
 
     for i in range(nrows):
         for j in range(ncols):

@@ -22,10 +22,6 @@ def run_geocode(run_config_path: Filename, log_dir: Filename = Path(".")) -> Pat
     ----------
     run_config_path : Filename
         Path to the run config file.
-    x_posting : float, default = 5
-        Spacing of geocoded SLCs (in meters) along the x-direction.
-    y_posting : float, default = 10
-        Spacing of geocoded SLCs (in meters) along the y-direction.
     log_dir : Filename, default = "."
         Directory to store the log files.
         Log file is named `s1_geocode_slc_{burst_id}_{date}.log` within log_dir.
