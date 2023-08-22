@@ -30,6 +30,7 @@ dependencies:
   - gdal
   - geopandas-base
   - h5py
+  - matplotlib-base
   - numpy
   - pandas
   - pydantic<2
