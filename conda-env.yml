@@ -15,29 +15,29 @@ dependencies:
   # - h5py>=3.6
   # - numpy>=1.20
   # - pandas>=1.5
-  # - pydantic>=1.10,<2
+  # - pydantic>=2.1
   # - requests>=2.20
   # - rich>=12.0
   # - rioxarray>=0.13
-  # - s1reader>=0.2.0
+  # - s1reader>=0.2.1
   # - sardem>=0.11.3
   # - sentineleof>=0.7.0
   # - shapely>=1.8
-  - isce3
-  - compass
+  - isce3>=0.14.0
+  - compass>=0.4.1
   - dask
-  - dolphin
+  - dolphin>=0.2.1
   - gdal
   - geopandas-base
   - h5py
   - matplotlib-base
   - numpy
   - pandas
-  - pydantic<2
+  - pydantic>2.1
   - requests
   - rich
   - rioxarray
-  - s1reader
+  - s1reader>=0.2.1
   - sardem
   - sentineleof
   - shapely
