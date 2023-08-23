@@ -16,7 +16,7 @@ from dask.distributed import Client
 from dolphin import utils
 from dolphin.io import DEFAULT_HDF5_OPTIONS, get_raster_xysize, load_gdal, write_arr
 from dolphin.workflows.config import OPERA_DATASET_NAME
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, model_validator
 from rich.progress import track
 
 from ._log import get_log, log_runtime
@@ -125,19 +125,17 @@ class InterferogramOptions(BaseModel):
         description="Alt. to max_bandwidth: maximum temporal baseline in days.",
     )
 
-    @validator("max_temporal_baseline", pre=True)
-    def _check_max_temporal_baseline(cls, v, values):
+    @model_validator(mode="after")
+    def _check_max_temporal_baseline(self):
         """Make sure they didn't specify max_bandwidth and max_temporal_baseline."""
-        if v is None:
-            return v
-        max_bandwidth = values.get("max_bandwidth")
-        if max_bandwidth == cls.schema()["properties"]["max_bandwidth"]["default"]:
-            values["max_bandwidth"] = None
-        else:
-            raise ValueError(
-                "Cannot specify both max_bandwidth and max_temporal_baseline"
-            )
-        return v
+        max_temporal_baseline = self.max_temporal_baseline
+        if max_temporal_baseline is not None:
+            self.max_bandwidth = None
+            # TODO :use the new field set functions for this
+            # raise ValueError(
+            #     "Cannot specify both max_bandwidth and max_temporal_baseline"
+            # )
+        return self
 
 
 def _take_looks_da(da: da.Array, row_looks: int, col_looks: int):

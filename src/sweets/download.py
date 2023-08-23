@@ -29,7 +29,7 @@ from urllib.parse import urlencode
 import requests
 from dateutil.parser import parse
 from dolphin.workflows.config import YamlModel
-from pydantic import Extra, Field, PrivateAttr, root_validator, validator
+from pydantic import ConfigDict, Field, PrivateAttr, field_validator, model_validator
 from shapely.geometry import box
 
 from ._log import get_log, log_runtime
@@ -47,6 +47,7 @@ class ASFQuery(YamlModel):
     out_dir: Path = Field(
         Path(".") / "data",
         description="Output directory for downloaded files",
+        validate_default=True,
     )
     bbox: tuple = Field(
         None,
@@ -93,11 +94,10 @@ class ASFQuery(YamlModel):
         description="Unzip downloaded files into .SAFE directories",
     )
     _url: str = PrivateAttr()
+    model_config = ConfigDict(extra="forbid")
 
-    class Config:
-        extra = Extra.forbid  # raise error if extra fields passed in
-
-    @validator("start", "end", pre=True)
+    @field_validator("start", "end", mode="before")
+    @classmethod
     def _parse_date(cls, v):
         if isinstance(v, datetime):
             return v
@@ -106,11 +106,12 @@ class ASFQuery(YamlModel):
             return datetime.combine(v, datetime.min.time())
         return parse(v)
 
-    @validator("out_dir", always=True)
+    @field_validator("out_dir")
     def _is_absolute(cls, v):
         return Path(v).resolve()
 
-    @validator("flight_direction")
+    @field_validator("flight_direction")
+    @classmethod
     def _accept_prefixes(cls, v):
         if v is None:
             return v
@@ -119,21 +120,22 @@ class ASFQuery(YamlModel):
         elif v.lower().startswith("d"):
             return "DESCENDING"
 
-    @root_validator
-    def _check_search_area(cls, values):
-        if not values.get("wkt"):
-            if values.get("bbox") is not None:
-                values["wkt"] = box(*values["bbox"]).wkt
-            else:
-                raise ValueError("Must provide a bbox or wkt")
+    @model_validator(mode="before")
+    def _check_search_area(cls, values: Any):
+        if isinstance(values, dict):
+            if not values.get("wkt"):
+                if values.get("bbox") is not None:
+                    values["wkt"] = box(*values["bbox"]).wkt
+                else:
+                    raise ValueError("Must provide a bbox or wkt")
 
-        elif Path(values["wkt"]).exists():
-            values["wkt"] = Path(values["wkt"]).read_text().strip()
+            elif Path(values["wkt"]).exists():
+                values["wkt"] = Path(values["wkt"]).read_text().strip()
 
-        # Check that end is after start
-        if values.get("start") is not None and values.get("end") is not None:
-            if values["end"] < values["start"]:
-                raise ValueError("End must be after start")
+            # Check that end is after start
+            if values.get("start") is not None and values.get("end") is not None:
+                if values["end"] < values["start"]:
+                    raise ValueError("End must be after start")
         return values
 
     def __init__(self, **data: Any) -> None:
