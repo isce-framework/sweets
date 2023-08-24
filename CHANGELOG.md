@@ -6,6 +6,10 @@
 **Fixed**
 - Geometry/`static layers` file creation from new COMPASS changes
 
+**Dependencies**
+- Upgraded `pydantic >= 2.1`
+- Pinned minimum dolphin version due to mamba weirdness
+
 # [0.1.0](https://github.com/isce-framework/sweets/commits/v0.1.0) - 2023-08-22
 
 
