@@ -3,7 +3,7 @@ from __future__ import annotations
 import shutil
 from os import fspath
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Literal, Optional, Tuple
 
 import compass.s1_geocode_slc
 import compass.s1_static_layers
@@ -15,6 +15,9 @@ from ._log import get_log
 from ._types import Filename
 
 logger = get_log(__name__)
+
+
+ModuleNames = Literal["s1_geocode_slc", "s1_static_layers"]
 
 
 def run_geocode(run_config_path: Filename, log_dir: Filename = Path(".")) -> Path:
@@ -55,18 +58,29 @@ def run_static_layers(run_config_path: Filename, log_dir: Filename = Path(".")) 
     return _run_config(run_config_path, log_dir, "s1_static_layers")
 
 
-def _run_config(run_config_path: Filename, log_dir: Filename, module_name: str) -> Path:
-    cfg = GeoRunConfig.load_from_yaml(str(run_config_path), "s1_cslc_geo")
-
-    burst_id_tup, params = list(cfg.output_paths.items())[0]
+def _get_cfg_setup(
+    run_config_path: Filename,
+    module_name: ModuleNames,
+) -> tuple[GeoRunConfig, Path, str]:
     # Need to load the config to get the output paths
-    # Check if it's already been run
+    cfg = GeoRunConfig.load_from_yaml(str(run_config_path), "s1_cslc_geo")
+    burst_id_tup, params = list(cfg.output_paths.items())[0]
+    burst_id_date = "_".join(burst_id_tup)
     outfile = Path(params.hdf5_path)
+    if module_name == "s1_static_layers":
+        outfile = outfile.with_name("static_layers_" + outfile.name)
+    return cfg, outfile, burst_id_date
+
+
+def _run_config(
+    run_config_path: Filename, log_dir: Filename, module_name: ModuleNames
+) -> Path:
+    cfg, outfile, burst_id_date = _get_cfg_setup(run_config_path, module_name)
+    # Check if it's already been run
     if not outfile.exists():
-        logger.info(f"Running geocoding for {run_config_path}")
+        logger.info(f"Running {module_name} for {run_config_path}")
 
         # Redirect all isce and compass logs to the same file
-        burst_id_date = "_".join(burst_id_tup)
         logfile = Path(log_dir) / f"s1_geocode_slc_{burst_id_date}.log"
         journal.info("s1_geocode_slc").device = journal.logfile(fspath(logfile), "w")
         journal.info("isce").device = journal.logfile(fspath(logfile), "w")

@@ -14,6 +14,8 @@ machine urs.earthdata.nasa.gov
     password CHANGE
 
 """
+from __future__ import annotations
+
 import argparse
 import json
 import os
@@ -23,7 +25,7 @@ import zipfile
 from datetime import date, datetime
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, List, Optional, Tuple
+from typing import Any, Optional
 from urllib.parse import urlencode
 
 import requests
@@ -49,7 +51,7 @@ class ASFQuery(YamlModel):
         description="Output directory for downloaded files",
         validate_default=True,
     )
-    bbox: tuple = Field(
+    bbox: Optional[tuple] = Field(
         None,
         description=(
             "lower left lon, lat, upper right format e.g."
@@ -61,7 +63,7 @@ class ASFQuery(YamlModel):
         description="Well Known Text (WKT) string",
     )
     start: datetime = Field(
-        None,
+        ...,
         description=(
             "Starting time for search. Can be datetime or string (goes to"
             " `dateutil.parse`)"
@@ -85,7 +87,7 @@ class ASFQuery(YamlModel):
         choices=["ASCENDING", "DESCENDING"],
         description="Ascending or descending",
     )
-    frames: Optional[Tuple[int, int]] = Field(
+    frames: Optional[tuple[int, int]] = Field(
         None,
         description="(start, end) range of ASF frames.",
     )
@@ -170,11 +172,11 @@ class ASFQuery(YamlModel):
         return _query_url(self._url)
 
     @staticmethod
-    def _get_urls(results: dict) -> List[str]:
+    def _get_urls(results: dict) -> list[str]:
         return [r["properties"]["url"] for r in results["features"]]
 
     @staticmethod
-    def _file_names(results: dict) -> List[str]:
+    def _file_names(results: dict) -> list[str]:
         return [r["properties"]["fileName"] for r in results["features"]]
 
     def _download_with_aria(self, urls, log_dir: Filename = Path(".")):
@@ -191,7 +193,7 @@ class ASFQuery(YamlModel):
             subprocess.run(aria_cmd, shell=True, stdout=f, stderr=f, text=True)
 
     @log_runtime
-    def download(self, log_dir: Filename = Path(".")) -> List[Path]:
+    def download(self, log_dir: Filename = Path(".")) -> list[Path]:
         # Start by saving data available as geojson
         results = self.query_results()
         urls = self._get_urls(results)
