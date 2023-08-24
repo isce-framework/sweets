@@ -3,20 +3,21 @@ from __future__ import annotations
 from concurrent.futures import Future, ProcessPoolExecutor, ThreadPoolExecutor, wait
 from functools import partial
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 import h5py
 import numpy as np
 from dolphin import io, stitching, unwrap
+from dolphin._types import Bbox
 from dolphin.interferogram import Network
 from dolphin.utils import group_by_date, set_num_threads
 from dolphin.workflows import group_by_burst
 from dolphin.workflows.config import OPERA_DATASET_ROOT, YamlModel
-from pydantic import Extra, Field, root_validator, validator
+from pydantic import ConfigDict, Field, field_validator, model_validator
 from shapely import geometry, wkt
 
 from ._burst_db import get_burst_db
-from ._geocode_slcs import create_config_files, run_geocode
+from ._geocode_slcs import create_config_files, run_geocode, run_static_layers
 from ._log import get_log, log_runtime
 from ._netrc import setup_nasa_netrc
 from ._orbit import download_orbits
@@ -36,9 +37,10 @@ class Workflow(YamlModel):
     work_dir: Path = Field(
         default_factory=Path.cwd,
         description="Root of working directory for processing.",
+        validate_default=True,
     )
 
-    bbox: tuple[float, ...] = Field(
+    bbox: Bbox = Field(
         None,
         description=(
             "Area of interest: (left, bottom, right, top) longitude/latitude "
@@ -53,6 +55,7 @@ class Workflow(YamlModel):
     orbit_dir: Path = Field(
         Path("orbits"),
         description="Directory for orbit files.",
+        validate_default=True,
     )
 
     asf_query: ASFQuery
@@ -65,8 +68,7 @@ class Workflow(YamlModel):
         ),
     )
     interferogram_options: InterferogramOptions = Field(
-        default_factory=InterferogramOptions,
-        description="Options for interferogram creation.",
+        default_factory=InterferogramOptions
     )
     do_unwrap: bool = Field(
         True,
@@ -76,8 +78,7 @@ class Workflow(YamlModel):
         (10, 5),
         description="Spacing of geocoded SLCs (in meters) along the (y, x)-directions.",
     )
-    pol_type: str = Field(
-        # TODO: Make it an Enum
+    pol_type: Literal["co-pol", "cross-pol"] = Field(
         "co-pol",
         description="Type of polarization to process for GSLCs",
     )
@@ -98,11 +99,10 @@ class Workflow(YamlModel):
         False,
         description="Overwrite existing files.",
     )
+    model_config = ConfigDict(extra="allow")
 
-    class Config:
-        extra = Extra.allow  # Let us set arbitrary attributes later
-
-    @validator("wkt", pre=True)
+    @field_validator("wkt", mode="before")
+    @classmethod
     def _check_file_and_parse_wkt(cls, v):
         if v is not None:
             if Path(v).exists():
@@ -114,59 +114,65 @@ class Workflow(YamlModel):
                 raise ValueError(f"Invalid WKT string: {e}")
         return v
 
-    # Note: this root_validator's `values` only contains the fields that have
+    # Note: this model_validator's `info.data` only contains the fields that have
     # been passed in by a user.
-    @root_validator(pre=True)
-    def _check_unset_dirs(cls, values):
-        if "asf_query" not in values:
-            values["asf_query"] = {}
-        # Orbits dir and data dir can be outside the working dir if someone
-        # wants to point to existing data.
-        # So we only want to move them inside the working dir if they weren't
-        # explicitly set.
-        values["_orbit_dir_is_set"] = "orbit_dir" in values
-        values["_data_dir_is_set"] = "out_dir" in values["asf_query"]
+    @model_validator(mode="before")
+    @classmethod
+    def _check_unset_dirs(cls, values: Any) -> "Workflow":
+        # TODO: Use the newer checks for fields set
+        if isinstance(values, dict):
+            if "asf_query" not in values:
+                values["asf_query"] = {}
+            # Orbits dir and data dir can be outside the working dir if someone
+            # wants to point to existing data.
+            # So we only want to move them inside the working dir if they weren't
+            # explicitly set.
+            values["_orbit_dir_is_set"] = "orbit_dir" in values
+            values["_data_dir_is_set"] = "out_dir" in values["asf_query"]
 
-        # also if they passed a wkt to the outer constructor, we need to
-        # pass through to the ASF query
-        values["asf_query"]["wkt"] = values.get("asf_query", {}).get(
-            "wkt"
-        ) or values.get("wkt")
-        values["asf_query"]["bbox"] = values.get("asf_query", {}).get(
-            "bbox"
-        ) or values.get("bbox")
-        # sync the other way too:
-        values["wkt"] = values["asf_query"]["wkt"]
-        values["bbox"] = values["asf_query"]["bbox"]
-        if not values.get("bbox") and not values.get("wkt"):
-            raise ValueError("Must specify either `bbox` or `wkt`")
+            # also if they passed a wkt to the outer constructor, we need to
+            # pass through to the ASF query
+            values["asf_query"]["wkt"] = values.get("asf_query", {}).get(
+                "wkt"
+            ) or values.get("wkt")
+            values["asf_query"]["bbox"] = values.get("asf_query", {}).get(
+                "bbox"
+            ) or values.get("bbox")
+            # sync the other way too:
+            values["wkt"] = values["asf_query"]["wkt"]
+            values["bbox"] = values["asf_query"]["bbox"]
+            if not values.get("bbox") and not values.get("wkt"):
+                raise ValueError("Must specify either `bbox` or `wkt`")
+
         return values
 
     # expanduser and resolve each of the dirs:
-    @validator("work_dir", "orbit_dir", pre=True)
+    @field_validator("work_dir", "orbit_dir")
+    @classmethod
     def _expand_dirs(cls, v):
         return Path(v).expanduser().resolve()
 
-    # while this one has all the fields
-    @root_validator()
-    def _move_inside_workdir(cls, values):
-        if not values["_orbit_dir_is_set"]:
-            values["orbit_dir"] = (values["work_dir"] / values["orbit_dir"]).resolve()
-        if not values["_data_dir_is_set"] and "asf_query" in values:
-            values["asf_query"].out_dir = (
-                values["work_dir"] / values["asf_query"].out_dir
-            ).resolve()
+    # # while this one has all the fields
+    # @model_validator()
+    # def _move_inside_workdir(self):
+    #     # TODO: pydantic has made this easier with new attributes to check attrs set
+    #     if not values["_orbit_dir_is_set"]:
+    #         values["orbit_dir"] = (values["work_dir"] / values["orbit_dir"]).resolve()
+    #     if not values["_data_dir_is_set"] and "asf_query" in values:
+    #         values["asf_query"].out_dir = (
+    #             values["work_dir"] / values["asf_query"].out_dir
+    #         ).resolve()
 
-        return values
+    #     return values
 
-    @root_validator()
-    def _set_bbox_and_wkt(cls, values):
+    @model_validator(mode="after")
+    def _set_bbox_and_wkt(self, values):
         # If they've specified a bbox, set the wkt
-        if not values.get("bbox"):
-            values["bbox"] = wkt.loads(values["wkt"]).bounds
+        if not self.bbox:
+            self.bbox = wkt.loads(self.wkt).bounds
         else:
             # otherwise, make WKT just a 5 point polygon
-            values["wkt"] = wkt.dumps(geometry.box(*values["bbox"]))
+            self.wkt = wkt.dumps(geometry.box(*self.bbox))
         return values
 
     def save(self, config_file: Filename = "sweets_config.yaml"):
@@ -296,27 +302,47 @@ class Workflow(YamlModel):
             return f"{burst}_{date}.h5"
 
         # Check which ones we have without submitting a future
-        gslc_files = []
-        todo = []
+        all_gslc_files = []
+        todo_gslc = []
         existing_paths = self._get_existing_gslcs()
         name_to_paths = {p.name: p for p in existing_paths}
         logger.info(f"Found {len(name_to_paths)} existing GSLC files")
         for cfg_file in compass_cfg_files:
             name = cfg_to_filename(cfg_file)
             if name in name_to_paths:
-                gslc_files.append(name_to_paths[name])
+                all_gslc_files.append(name_to_paths[name])
             else:
                 # Run the geocoding if we dont have it already
-                todo.append(cfg_file)
+                todo_gslc.append(cfg_file)
 
         run_func = partial(run_geocode, log_dir=self.log_dir)
         with ProcessPoolExecutor(max_workers=self.n_workers) as _client:
-            new_files = _client.map(run_func, todo)
+            new_files = _client.map(run_func, todo_gslc)
 
         new_files = list(new_files)
-        gslc_files.extend(new_files)
+        all_gslc_files.extend(new_files)
 
-        return sorted(gslc_files)
+        # Get the first config file (by date) for each of the bursts.
+        # We only need to create the static layers once per burst
+        existing_static_paths = self._get_burst_static_layers()
+        name_to_paths = {p.name: p for p in existing_static_paths}
+        logger.info(f"Found {len(name_to_paths)} existing geometry files")
+        day1_cfg_paths = [
+            paths[0] for paths in group_by_burst(compass_cfg_files).values()
+        ]
+        static_files = []
+        todo_static = []
+        for cfg_file in day1_cfg_paths:
+            name = cfg_to_filename(cfg_file)
+            if name in name_to_paths:
+                static_files.append(name_to_paths[name])
+            else:
+                # Run the geocoding if we dont have it already
+                todo_static.append(cfg_file)
+
+        run_func = partial(run_static_layers, log_dir=self.log_dir)
+        with ProcessPoolExecutor(max_workers=self.n_workers) as _client:
+            new_files = _client.map(run_func, todo_static)
 
     @log_runtime
     def _stitch_geometry(self, geom_path_list):
@@ -504,17 +530,16 @@ class Workflow(YamlModel):
     def run(self, starting_step: int = 1):
         """Run the workflow."""
         setup_nasa_netrc()
-        try:
-            set_num_threads(self.threads_per_worker)
-        except OSError:
-            # https://github.com/pyre/pyre/issues/108 , will go away soon
-            set_num_threads(self.threads_per_worker)
+        set_num_threads(self.threads_per_worker)
 
         # First step: data download
         logger.info(f"Setting up {self.n_workers} workers for ThreadPoolExecutor")
         if starting_step <= 1:
             with ThreadPoolExecutor(max_workers=self.n_workers) as _client:
+                # TODO: fix this odd workaround once the isce3 hanging issues
+                # are being resolved
                 self._client = _client
+
                 dem_fut = self._download_dem()
                 burst_db_fut = self._download_burst_db()
                 water_mask_future = self._download_water_mask()

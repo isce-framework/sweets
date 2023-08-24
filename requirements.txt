@@ -7,7 +7,7 @@ dask>=2022.6.0
 h5py>=3.6
 numpy>=1.20
 pandas
-pydantic>=1.10,<2
+pydantic>=2
 pyproj>=3.2
 requests>=2.10
 rich>=12.0

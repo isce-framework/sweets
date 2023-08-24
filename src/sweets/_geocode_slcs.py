@@ -3,16 +3,21 @@ from __future__ import annotations
 import shutil
 from os import fspath
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Literal, Optional, Tuple
 
+import compass.s1_geocode_slc
+import compass.s1_static_layers
 import journal
-from compass import s1_geocode_slc, s1_geocode_stack
+from compass import s1_geocode_stack
 from compass.utils.geo_runconfig import GeoRunConfig
 
 from ._log import get_log
 from ._types import Filename
 
 logger = get_log(__name__)
+
+
+ModuleNames = Literal["s1_geocode_slc", "s1_static_layers"]
 
 
 def run_geocode(run_config_path: Filename, log_dir: Filename = Path(".")) -> Path:
@@ -31,25 +36,61 @@ def run_geocode(run_config_path: Filename, log_dir: Filename = Path(".")) -> Pat
     Path
         Path of geocoded HDF5 file.
     """
-    cfg = GeoRunConfig.load_from_yaml(str(run_config_path), "s1_cslc_geo")
+    return _run_config(run_config_path, log_dir, "s1_geocode_slc")
 
-    burst_id_tup, params = list(cfg.output_paths.items())[0]
+
+def run_static_layers(run_config_path: Filename, log_dir: Filename = Path(".")) -> Path:
+    """Run the geometry (static layer) creation for an SLC.
+
+    Parameters
+    ----------
+    run_config_path : Filename
+        Path to the run config file.
+    log_dir : Filename, default = "."
+        Directory to store the log files.
+        Log file is named `s1_static_layers_{burst_id}_{date}.log` within log_dir.
+
+    Returns
+    -------
+    Path
+        Path of geocoded HDF5 file.
+    """
+    return _run_config(run_config_path, log_dir, "s1_static_layers")
+
+
+def _get_cfg_setup(
+    run_config_path: Filename,
+    module_name: ModuleNames,
+) -> tuple[GeoRunConfig, Path, str]:
     # Need to load the config to get the output paths
-    # Check if it's already been run
+    cfg = GeoRunConfig.load_from_yaml(str(run_config_path), "s1_cslc_geo")
+    burst_id_tup, params = list(cfg.output_paths.items())[0]
+    burst_id_date = "_".join(burst_id_tup)
     outfile = Path(params.hdf5_path)
+    if module_name == "s1_static_layers":
+        outfile = outfile.with_name("static_layers_" + outfile.name)
+    return cfg, outfile, burst_id_date
+
+
+def _run_config(
+    run_config_path: Filename, log_dir: Filename, module_name: ModuleNames
+) -> Path:
+    cfg, outfile, burst_id_date = _get_cfg_setup(run_config_path, module_name)
+    # Check if it's already been run
     if not outfile.exists():
-        logger.info(f"Running geocoding for {run_config_path}")
+        logger.info(f"Running {module_name} for {run_config_path}")
 
         # Redirect all isce and compass logs to the same file
-        burst_id_date = "_".join(burst_id_tup)
         logfile = Path(log_dir) / f"s1_geocode_slc_{burst_id_date}.log"
         journal.info("s1_geocode_slc").device = journal.logfile(fspath(logfile), "w")
         journal.info("isce").device = journal.logfile(fspath(logfile), "w")
 
-        s1_geocode_slc.run(cfg)
+        # both s1_geocode_slc and s1_static_layers have the same interface
+        module = getattr(compass, module_name)
+        module.run(cfg)
     else:
         logger.info(
-            f"Skipping geocoding for {run_config_path}, {outfile} already exists."
+            f"Skipping workflow for {run_config_path}, {outfile} already exists."
         )
 
     return outfile

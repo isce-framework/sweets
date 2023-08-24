@@ -43,6 +43,7 @@ repos:
         - types-pkg_resources
         - types-python-dateutil
         - types-requests
+        - "pydantic>=2.1"
 
   - repo: https://github.com/PyCQA/pydocstyle
     rev: "6.3.0"

@@ -14,6 +14,8 @@ machine urs.earthdata.nasa.gov
     password CHANGE
 
 """
+from __future__ import annotations
+
 import argparse
 import json
 import os
@@ -23,13 +25,13 @@ import zipfile
 from datetime import date, datetime
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, List, Optional, Tuple
+from typing import Any, Optional
 from urllib.parse import urlencode
 
 import requests
 from dateutil.parser import parse
 from dolphin.workflows.config import YamlModel
-from pydantic import Extra, Field, PrivateAttr, root_validator, validator
+from pydantic import ConfigDict, Field, PrivateAttr, field_validator, model_validator
 from shapely.geometry import box
 
 from ._log import get_log, log_runtime
@@ -47,8 +49,9 @@ class ASFQuery(YamlModel):
     out_dir: Path = Field(
         Path(".") / "data",
         description="Output directory for downloaded files",
+        validate_default=True,
     )
-    bbox: tuple = Field(
+    bbox: Optional[tuple] = Field(
         None,
         description=(
             "lower left lon, lat, upper right format e.g."
@@ -60,7 +63,7 @@ class ASFQuery(YamlModel):
         description="Well Known Text (WKT) string",
     )
     start: datetime = Field(
-        None,
+        ...,
         description=(
             "Starting time for search. Can be datetime or string (goes to"
             " `dateutil.parse`)"
@@ -84,7 +87,7 @@ class ASFQuery(YamlModel):
         choices=["ASCENDING", "DESCENDING"],
         description="Ascending or descending",
     )
-    frames: Optional[Tuple[int, int]] = Field(
+    frames: Optional[tuple[int, int]] = Field(
         None,
         description="(start, end) range of ASF frames.",
     )
@@ -93,11 +96,10 @@ class ASFQuery(YamlModel):
         description="Unzip downloaded files into .SAFE directories",
     )
     _url: str = PrivateAttr()
+    model_config = ConfigDict(extra="forbid")
 
-    class Config:
-        extra = Extra.forbid  # raise error if extra fields passed in
-
-    @validator("start", "end", pre=True)
+    @field_validator("start", "end", mode="before")
+    @classmethod
     def _parse_date(cls, v):
         if isinstance(v, datetime):
             return v
@@ -106,11 +108,12 @@ class ASFQuery(YamlModel):
             return datetime.combine(v, datetime.min.time())
         return parse(v)
 
-    @validator("out_dir", always=True)
+    @field_validator("out_dir")
     def _is_absolute(cls, v):
         return Path(v).resolve()
 
-    @validator("flight_direction")
+    @field_validator("flight_direction")
+    @classmethod
     def _accept_prefixes(cls, v):
         if v is None:
             return v
@@ -119,21 +122,22 @@ class ASFQuery(YamlModel):
         elif v.lower().startswith("d"):
             return "DESCENDING"
 
-    @root_validator
-    def _check_search_area(cls, values):
-        if not values.get("wkt"):
-            if values.get("bbox") is not None:
-                values["wkt"] = box(*values["bbox"]).wkt
-            else:
-                raise ValueError("Must provide a bbox or wkt")
+    @model_validator(mode="before")
+    def _check_search_area(cls, values: Any):
+        if isinstance(values, dict):
+            if not values.get("wkt"):
+                if values.get("bbox") is not None:
+                    values["wkt"] = box(*values["bbox"]).wkt
+                else:
+                    raise ValueError("Must provide a bbox or wkt")
 
-        elif Path(values["wkt"]).exists():
-            values["wkt"] = Path(values["wkt"]).read_text().strip()
+            elif Path(values["wkt"]).exists():
+                values["wkt"] = Path(values["wkt"]).read_text().strip()
 
-        # Check that end is after start
-        if values.get("start") is not None and values.get("end") is not None:
-            if values["end"] < values["start"]:
-                raise ValueError("End must be after start")
+            # Check that end is after start
+            if values.get("start") is not None and values.get("end") is not None:
+                if values["end"] < values["start"]:
+                    raise ValueError("End must be after start")
         return values
 
     def __init__(self, **data: Any) -> None:
@@ -168,11 +172,11 @@ class ASFQuery(YamlModel):
         return _query_url(self._url)
 
     @staticmethod
-    def _get_urls(results: dict) -> List[str]:
+    def _get_urls(results: dict) -> list[str]:
         return [r["properties"]["url"] for r in results["features"]]
 
     @staticmethod
-    def _file_names(results: dict) -> List[str]:
+    def _file_names(results: dict) -> list[str]:
         return [r["properties"]["fileName"] for r in results["features"]]
 
     def _download_with_aria(self, urls, log_dir: Filename = Path(".")):
@@ -189,7 +193,7 @@ class ASFQuery(YamlModel):
             subprocess.run(aria_cmd, shell=True, stdout=f, stderr=f, text=True)
 
     @log_runtime
-    def download(self, log_dir: Filename = Path(".")) -> List[Path]:
+    def download(self, log_dir: Filename = Path(".")) -> list[Path]:
         # Start by saving data available as geojson
         results = self.query_results()
         urls = self._get_urls(results)
