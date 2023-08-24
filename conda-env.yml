@@ -11,10 +11,8 @@ dependencies:
   # - dask>=2022.6.0
   # - dolphin>=0.2.0
   # - gdal>=3.5
-  # - geopandas-base>=0.12.0
   # - h5py>=3.6
   # - numpy>=1.20
-  # - pandas>=1.5
   # - pydantic>=2.1
   # - requests>=2.20
   # - rich>=12.0
@@ -28,16 +26,15 @@ dependencies:
   - dask
   - dolphin>=0.3.0
   - gdal
-  # - geopandas-base
   - h5py
-  # - matplotlib-base
   - numpy
-  # - pandas
   - pydantic>2.1
+  - pyproj>=3.3
+  - python-dateutil
+  - rasterio
   - requests
   - rich
   - rioxarray
-  - s1reader>=0.2.1
   - sardem
   - sentineleof
   - shapely
