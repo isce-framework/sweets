@@ -1,5 +1,11 @@
 # Unreleased
 
+
+# [0.2.0](https://github.com/opera-adt/dolphin/compare/v0.2.0...v0.3.0) - 2023-08-23
+
+**Fixed**
+- Geometry/`static layers` file creation from new COMPASS changes
+
 # [0.1.0](https://github.com/isce-framework/sweets/commits/v0.1.0) - 2023-08-22
 
 

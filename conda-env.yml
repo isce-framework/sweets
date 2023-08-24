@@ -26,13 +26,13 @@ dependencies:
   - isce3>=0.14.0
   - compass>=0.4.1
   - dask
-  - dolphin>=0.2.1
+  - dolphin>=0.3.0
   - gdal
-  - geopandas-base
+  # - geopandas-base
   - h5py
-  - matplotlib-base
+  # - matplotlib-base
   - numpy
-  - pandas
+  # - pandas
   - pydantic>2.1
   - requests
   - rich
