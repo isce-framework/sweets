@@ -5,7 +5,7 @@ dependencies:
   - python>=3.8
   - pip>=21.3  # https://pip.pypa.io/en/stable/reference/build-system/pyproject-toml/#editable-installation
   - git  # for pip install, due to setuptools_scm
-  - aria2 # ASF Downloading
+  - wget # ASF Downloading
   # - isce3>=0.14.0
   # - compass>=0.4.1
   # - dask>=2022.6.0

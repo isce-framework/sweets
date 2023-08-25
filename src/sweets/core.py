@@ -253,7 +253,7 @@ class Workflow(YamlModel):
             create_water_mask, self._water_mask_filename, self._dem_bbox
         )
 
-    def _download_rslcs(self) -> Future:
+    def _download_rslcs(self) -> list[Path]:
         """Download Sentinel zip files from ASF."""
         self.log_dir.mkdir(parents=True, exist_ok=True)
         # The final name will depend on if we're unzipping or not
@@ -264,7 +264,7 @@ class Workflow(YamlModel):
                 f"Found {len(existing_files)} existing files in"
                 f" {self.asf_query.out_dir}. Skipping download."
             )
-            return self._client.submit(lambda: existing_files)
+            return existing_files
 
         # If we didn't have any, we need to download them
         # TODO: how should we handle partial/failed downloads... do we really
@@ -272,10 +272,7 @@ class Workflow(YamlModel):
         # Maybe there can be a "force" flag to re-download everything?
         # or perhaps an API search, then if the number matches, we can skip
         # rather than let aria2c start and do the checksums
-        rslc_futures = self._client.submit(
-            self.asf_query.download, log_dir=self.log_dir
-        )
-        return rslc_futures
+        return self.asf_query.download(log_dir=self.log_dir)
 
     @log_runtime
     def _geocode_slcs(self, slc_files, dem_file, burst_db_file):
@@ -543,12 +540,12 @@ class Workflow(YamlModel):
                 dem_fut = self._download_dem()
                 burst_db_fut = self._download_burst_db()
                 water_mask_future = self._download_water_mask()
-                rslc_futures = self._download_rslcs()
                 # Gather the futures once everything is downloaded
                 burst_db_file = burst_db_fut.result()
                 dem_fut.result()
                 wait([water_mask_future])
-                rslc_files = rslc_futures.result()
+
+            rslc_files = self._download_rslcs()
 
         # Second step:
         if starting_step <= 2:

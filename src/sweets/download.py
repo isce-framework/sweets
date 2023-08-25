@@ -22,6 +22,7 @@ import os
 import subprocess
 import sys
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
 from functools import lru_cache
 from pathlib import Path
@@ -192,6 +193,20 @@ class ASFQuery(YamlModel):
         with open(log_filename, "w") as f:
             subprocess.run(aria_cmd, shell=True, stdout=f, stderr=f, text=True)
 
+    def _download_with_wget(self, urls, log_dir: Filename = Path(".")):
+        def download_url(idx_url_pair):
+            idx, u = idx_url_pair
+            log_filename = Path(log_dir) / f"wget_{idx:02d}.log"
+            with open(log_filename, "w") as f:
+                wget_cmd = f'wget -nc -c "{u}" -P "{self.out_dir}"'
+                logger.info(f"({idx} / {len(urls)}): Downloading {u} with wget")
+                logger.info(wget_cmd)
+                subprocess.run(wget_cmd, shell=True, stdout=f, stderr=f, text=True)
+
+        # Parallelize the download using ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            list(executor.map(download_url, enumerate(urls)))
+
     @log_runtime
     def download(self, log_dir: Filename = Path(".")) -> list[Path]:
         # Start by saving data available as geojson
@@ -206,8 +221,8 @@ class ASFQuery(YamlModel):
         self.out_dir.mkdir(parents=True, exist_ok=True)
         file_names = [self.out_dir / f for f in self._file_names(results)]
 
-        # NOTE: aria should skip already-downloaded files
-        self._download_with_aria(urls, log_dir=log_dir)
+        # TODO: use aria if available? or just make wget parallel...
+        self._download_with_wget(urls, log_dir=log_dir)
 
         if self.unzip:
             # Change to .SAFE extension
