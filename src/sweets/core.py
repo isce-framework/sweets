@@ -544,20 +544,20 @@ class Workflow(YamlModel):
                 burst_db_fut = self._download_burst_db()
                 water_mask_future = self._download_water_mask()
                 rslc_futures = self._download_rslcs()
-                orbits_future = self._client.submit(
-                    download_orbits, self.asf_query.out_dir, self.orbit_dir
-                )
                 # Gather the futures once everything is downloaded
                 burst_db_file = burst_db_fut.result()
                 dem_fut.result()
                 wait([water_mask_future])
-                wait([orbits_future])
                 rslc_files = rslc_futures.result()
 
         # Second step:
         if starting_step <= 2:
             burst_db_file = get_burst_db()
+            orbits_future = self._client.submit(
+                download_orbits, self.asf_query.out_dir, self.orbit_dir
+            )
             rslc_files = self._get_existing_rslcs()
+            wait([orbits_future])
             self._geocode_slcs(rslc_files, self._dem_filename, burst_db_file)
 
             geom_path_list = self._get_burst_static_layers()
