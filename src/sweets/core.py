@@ -321,6 +321,12 @@ class Workflow(YamlModel):
 
         # Get the first config file (by date) for each of the bursts.
         # We only need to create the static layers once per burst
+        def cfg_to_static_filename(cfg_path: Path) -> str:
+            # Convert the YAML filename to a .h5 filename with date switched
+            # geo_runconfig_20221029_t078_165578_iw3.yaml -> t078_165578_iw2_20221029.h5
+            burst = "_".join(cfg_path.stem.split("_")[3:])
+            return f"static_layers_{burst}.h5"
+
         existing_static_paths = self._get_burst_static_layers()
         name_to_paths = {p.name: p for p in existing_static_paths}
         logger.info(f"Found {len(name_to_paths)} existing geometry files")
@@ -330,13 +336,12 @@ class Workflow(YamlModel):
         static_files = []
         todo_static = []
         for cfg_file in day1_cfg_paths:
-            name = cfg_to_filename(cfg_file)
+            name = cfg_to_static_filename(cfg_file)
             if name in name_to_paths:
                 static_files.append(name_to_paths[name])
             else:
                 # Run the geocoding if we dont have it already
                 todo_static.append(cfg_file)
-
         run_func = partial(run_static_layers, log_dir=self.log_dir)
         with ProcessPoolExecutor(max_workers=self.n_workers) as _client:
             new_files = _client.map(run_func, todo_static)
@@ -412,7 +417,7 @@ class Workflow(YamlModel):
         # Group the SLCs by burst:
         # {'t078_165573_iw2': [PosixPath('gslcs/t078_165573_iw2/20221029/...], 't078_...
         burst_to_gslc = group_by_burst(gslc_files)
-        burst_to_ifg = group_by_burst(self._get_existing_burst_ifgs())
+        burst_to_ifg = group_by_burst(self._get_existing_burst_ifgs(), minimum_images=1)
         ifg_path_list = []
         for burst, gslc_files in burst_to_gslc.items():
             subdatasets = [self._get_subdataset(f) for f in gslc_files]
@@ -550,11 +555,8 @@ class Workflow(YamlModel):
         # Second step:
         if starting_step <= 2:
             burst_db_file = get_burst_db()
-            orbits_future = self._client.submit(
-                download_orbits, self.asf_query.out_dir, self.orbit_dir
-            )
+            download_orbits(self.asf_query.out_dir, self.orbit_dir)
             rslc_files = self._get_existing_rslcs()
-            wait([orbits_future])
             self._geocode_slcs(rslc_files, self._dem_filename, burst_db_file)
 
             geom_path_list = self._get_burst_static_layers()
