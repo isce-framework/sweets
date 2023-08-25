@@ -10,7 +10,7 @@ logger = get_log(__name__)
 
 def download_orbits(search_path: Path, save_dir: Path) -> List[Path]:
     """Download orbit files for a given search path."""
-    logger.debug(f"search_path: {search_path}, save_dir: {save_dir}")
+    logger.info(f"Orbit search_path: {search_path}, save_dir: {save_dir}")
     filenames = download.main(
         search_path=search_path,
         save_dir=save_dir,
