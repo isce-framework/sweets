@@ -21,6 +21,7 @@ from dolphin import io
 from dolphin.utils import full_suffix, get_dates
 from dolphin.workflows.config import OPERA_DATASET_ROOT
 from mintpy.utils import arg_utils, ptime, readfile, writefile
+from mintpy.utils.utils0 import calc_azimuth_from_east_north_obs
 
 ####################################################################################
 EXAMPLE = """example:
@@ -391,12 +392,26 @@ def prepare_geometry(outfile, geom_dir, metadata, water_mask_file=None):
     dsDict = {}
     for dsName, fname in file_to_path.items():
         try:
-            dsDict[dsName] = readfile.read(fname, datasetName=dsName)[0]
+            data = readfile.read(fname, datasetName=dsName)[0]
+            # TODO: add general functionality to handle nodata into Mintpy
+            data[data == 0] = np.nan
+            dsDict[dsName] = data
+
             # write data to HDF5 file
-            writefile.write(dsDict, outfile, metadata=meta)
         except KeyError as e:  # https://github.com/insarlab/MintPy/issues/1081
             print(f"Skipping {fname}: {e}")
 
+    # Compute the azimuth and incidence angles from east/north coefficients
+    east = dsDict["los_east"]
+    north = dsDict["los_north"]
+    azimuth_angle = calc_azimuth_from_east_north_obs(east, north)
+    dsDict["azimuthAngle"] = azimuth_angle
+
+    up = np.sqrt(1 - east**2 - north**2)
+    incidence_angle = np.rad2deg(np.arccos(up))
+    dsDict["incidenceAngle"] = incidence_angle
+
+    writefile.write(dsDict, outfile, metadata=meta)
     return outfile
 
 
