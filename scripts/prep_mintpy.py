@@ -20,37 +20,20 @@ import pyproj
 from dolphin import io
 from dolphin.utils import full_suffix, get_dates
 from dolphin.workflows.config import OPERA_DATASET_ROOT
-from mintpy.utils import arg_utils, isce_utils, ptime, readfile, writefile
+from mintpy.utils import arg_utils, ptime, readfile, writefile
 
 ####################################################################################
 EXAMPLE = """example:
 
-  python3 ./prep_sweets.py -u 'interferograms/stitched/*.unw'  -m gslcs/t064_135516_iw3/20190704/static_layers_t064_135516_iw3.h5
+  python ./prep_mintpy.py -u 'interferograms/unwrapped/*.unw.tif'  -c 'interferograms/stitched/*.cor' -m gslcs/
 
-  ## example commands after prep_sweets.py
-  reference_point.py timeseries.h5 -y 500 -x 1150
-  generate_mask.py temporalCoherence.h5 -m 0.7 -o maskTempCoh.h5
-  tropo_pyaps3.py -f timeseries.h5 -g inputs/geometryRadar.h5
-  remove_ramp.py timeseries_ERA5.h5 -m maskTempCoh.h5 -s linear
-  dem_error.py timeseries_ERA5_ramp.h5 -g inputs/geometryRadar.h5
-  timeseries2velocity.py timeseries_ERA5_ramp_demErr.h5
-  geocode.py velocity.h5 -l inputs/geometryRadar.h5
 """  # noqa: E501
 
 # """
 # Scott TODO:
-# - dont need the ifg sample file, the unwrapped files should have everything
 # - UTM_ZONE, EPSG from the stitched IFG (it won't work to get a single GSLC burst)
 # - pixel size is wrong since we're taking range/azimuth size, instead of geocoded size
 # - HEIGHT: do we wanna try to get that from the saved orbit info?
-# -  cor_files  = [x.split(".unw")[0] + ".cor" for x in unw_files]
-# -    This might be wrong for dolphin? to verify
-
-# Scott did:
-# - remove bbox
-# - "set all data less than 0" thats a fringe specific thing to do -1, -2 for tcoh
-
-# """
 
 
 def _create_parser():
@@ -83,7 +66,6 @@ def _create_parser():
     parser.add_argument(
         "-m",
         "--meta-file",
-        dest="metaFile",
         type=str,
         help="GSLC metadata file or directory",
     )
@@ -98,7 +80,6 @@ def _create_parser():
     parser.add_argument(
         "-o",
         "--out-dir",
-        dest="outDir",
         type=str,
         default="./mintpy",
         help="output directory (default: %(default)s).",
@@ -134,7 +115,7 @@ def _create_parser():
         ),
     )
 
-    parser = arg_utils.add_subset_argument(parser, geo=False)
+    parser = arg_utils.add_subset_argument(parser, geo=True)
 
     return parser
 
@@ -145,12 +126,9 @@ def cmd_line_parse(iargs=None):
     inps = parser.parse_args(args=iargs)
 
     # in case meta_file is input as wildcard
-    inps.metaFile = sorted(glob.glob(inps.metaFile))[0]
+    inps.meta_file = sorted(glob.glob(inps.meta_file))[0]
 
     return inps
-
-
-####################################################################################
 
 
 def prepare_metadata(meta_file, int_file, nlks_x=1, nlks_y=1):
@@ -327,7 +305,6 @@ def prepare_timeseries(
     outfile,
     unw_files,
     metadata,
-    processor,
     baseline_dir=None,
 ):
     """Prepare the timeseries file."""
@@ -353,16 +330,7 @@ def prepare_timeseries(
     # baseline info
     pbase = np.zeros(num_date, dtype=np.float32)
     if baseline_dir is not None:
-        # read baseline data
-        # TODO: this isn't implemented yet
         raise NotImplementedError
-        # baseline_dict = isce_utils.read_baseline_timeseries(
-        #     baseline_dir, processor=processor, ref_date=ref_date
-        # )
-        # # dict to array
-        # for i in range(num_date):
-        #     pbase_top, pbase_bottom = baseline_dict[date_list[i]]
-        #     pbase[i] = (pbase_top + pbase_bottom) / 2.0
 
     # size info
     cols, rows = io.get_raster_xysize(unw_files[0])
@@ -411,9 +379,9 @@ def prepare_geometry(outfile, geom_dir, metadata, box, water_mask_file=None):
     meta["FILE_TYPE"] = "geometry"
 
     file_to_path = {
+        "los_east": geom_path / "los_east.tif",
+        "los_north": geom_path / "los_north.tif",
         "height": geom_path / "height.tif",
-        "incidenceAngle": geom_path / "incidence_angle.tif",
-        "azimuthAngle": geom_path / "heading_angle.tif",
         "shadowMask": geom_path / "layover_shadow_mask.tif",
     }
 
@@ -471,8 +439,7 @@ def prepare_stack(
     unw_files,
     cor_files,
     metadata,
-    processor,
-    baseline_dir=None,
+    # baseline_dir=None,
 ):
     """Prepare the input unw stack."""
     print("-" * 50)
@@ -508,20 +475,8 @@ def prepare_stack(
     # get date info: date12_list
     date12_list = _get_date_pairs(unw_files)
 
+    # TODO: compute the spatial baseline using COMPASS metadata
     pbase = np.zeros(num_pair, dtype=np.float32)
-    # prepare baseline info
-    if baseline_dir is not None:
-        # read baseline timeseries
-        baseline_dict = isce_utils.read_baseline_timeseries(
-            baseline_dir, processor=processor
-        )
-
-        # calc baseline for each pair
-        print("calc perp baseline pairs from time-series")
-        # pbase = np.zeros(num_pair, dtype=np.float32)
-        for i, date12 in enumerate(date12_list):
-            [date1, date2] = date12.split("_")
-            pbase[i] = np.subtract(baseline_dict[date2], baseline_dict[date1]).mean()
 
     # size info
     cols, rows = io.get_raster_xysize(unw_files[0])
@@ -577,10 +532,11 @@ def main(iargs=None):
     print(f"Found {len(unw_files)} unwrapped files")
     cor_files = sorted(glob.glob(inps.cor_file_glob))
     print(f"Found {len(cor_files)} correlation files")
+
     # translate input options
-    processor = "sweets"  # isce_utils.get_processor(inps.metaFile)
+    processor = "sweets"  # isce_utils.get_processor(inps.meta_file)
     # metadata
-    meta_file = Path(inps.metaFile)
+    meta_file = Path(inps.meta_file)
     if meta_file.is_dir():
         # Search for the line of sight static_layers file
         try:
@@ -594,11 +550,12 @@ def main(iargs=None):
     )
 
     # output directory
-    for dname in [inps.outDir, os.path.join(inps.outDir, "inputs")]:
+    for dname in [inps.out_dir, os.path.join(inps.out_dir, "inputs")]:
         os.makedirs(dname, exist_ok=True)
 
-    stack_file = os.path.join(inps.outDir, "inputs/ifgramStack.h5")
-    ts_file = os.path.join(inps.outDir, "timeseries.h5")
+    stack_file = os.path.join(inps.out_dir, "inputs/ifgramStack.h5")
+    ts_file = os.path.join(inps.out_dir, "timeseries.h5")
+    geom_file = os.path.join(inps.out_dir, "geometryGeo.h5")
 
     if inps.single_reference:
         # time-series (if inputs are all single-reference)
@@ -607,8 +564,10 @@ def main(iargs=None):
             unw_files=unw_files,
             metadata=meta,
             processor=processor,
-            baseline_dir=inps.baselineDir,
+            # baseline_dir=inps.baseline_dir,
         )
+
+    prepare_geometry(geom_file, geom_dir=inps.geom_dir, metadata=meta)
 
     # prepare ifgstack with connected components
     prepare_stack(
@@ -616,8 +575,7 @@ def main(iargs=None):
         unw_files=unw_files,
         cor_files=cor_files,
         metadata=meta,
-        processor=processor,
-        baseline_dir=inps.baselineDir,
+        # baseline_dir=inps.baseline_dir,
     )
 
     print("Done.")
