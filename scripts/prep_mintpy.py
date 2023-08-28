@@ -368,7 +368,7 @@ def prepare_timeseries(
     return outfile
 
 
-def prepare_geometry(outfile, geom_dir, metadata, box, water_mask_file=None):
+def prepare_geometry(outfile, geom_dir, metadata, water_mask_file=None):
     """Prepare the geometry file."""
     print("-" * 50)
     print(f"preparing geometry file: {outfile}")
@@ -390,10 +390,12 @@ def prepare_geometry(outfile, geom_dir, metadata, box, water_mask_file=None):
 
     dsDict = {}
     for dsName, fname in file_to_path.items():
-        dsDict[dsName] = readfile.read(fname, datasetName=dsName, box=box)[0]
-
-    # write data to HDF5 file
-    writefile.write(dsDict, outfile, metadata=meta)
+        try:
+            dsDict[dsName] = readfile.read(fname, datasetName=dsName)[0]
+            # write data to HDF5 file
+            writefile.write(dsDict, outfile, metadata=meta)
+        except KeyError as e:  # https://github.com/insarlab/MintPy/issues/1081
+            print(f"Skipping {fname}: {e}")
 
     return outfile
 
