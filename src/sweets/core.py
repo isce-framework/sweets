@@ -40,7 +40,7 @@ class Workflow(YamlModel):
         validate_default=True,
     )
 
-    bbox: Bbox = Field(
+    bbox: Optional[Bbox] = Field(
         None,
         description=(
             "Area of interest: (left, bottom, right, top) longitude/latitude "
@@ -49,7 +49,10 @@ class Workflow(YamlModel):
     )
     wkt: Optional[str] = Field(
         None,
-        description="Well Known Text (WKT) string (overrides bbox)",
+        description=(
+            "Well Known Text (WKT) string (overrides bbox). Must specify `bbox` or"
+            " `wkt`"
+        ),
     )
 
     orbit_dir: Path = Field(
@@ -208,6 +211,7 @@ class Workflow(YamlModel):
         self._water_mask_filename = self.work_dir / "watermask.flg"
 
         # Expanded version used for internal processing
+        assert isinstance(self.bbox, Bbox)
         self._dem_bbox = (
             self.bbox[0] - 0.25,
             self.bbox[1] - 0.25,

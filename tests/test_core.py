@@ -1,3 +1,5 @@
+from shapely import wkt
+
 from sweets.core import Workflow
 
 
@@ -25,3 +27,47 @@ def test_workflow_construct(tmp_path):
     w.to_yaml(outfile, with_comments=True)
     w2 = Workflow.from_yaml(outfile)
     assert w == w2
+
+
+def _iou(poly1, poly2):
+    return poly1.intersection(poly2).area / poly1.union(poly2).area
+
+
+def test_workflow_bbox_wkt(tmp_path):
+    start, end, track = "2022-12-15", "2022-12-29", 78
+    wkt_str = "POLYGON((-10.0 30.0,-9.0 30.0,-9.0 31.0,-10.0 31.0,-10.0 30.0))"
+    loaded_wkt = wkt.loads(wkt_str)
+
+    kwargs = dict(
+        asf_query=dict(
+            start=start,
+            end=end,
+            relativeOrbit=track,
+        ),
+    )
+    wkt_bbox = wkt.loads(
+        "POLYGON ((-9. 30.0, -9.0 31.0, -10.0 31.0, -10.0 30.0, -9.0 30.0))"
+    )
+    expected_bbox = (-10, 30, -9, 31)
+    w = Workflow(
+        bbox=expected_bbox,
+        **kwargs,
+    )
+    assert w.bbox == expected_bbox
+    assert _iou(wkt.loads(w.wkt), wkt_bbox) == 1.0
+
+    w = Workflow(
+        wkt=wkt_str,
+        **kwargs,
+    )
+    assert w.bbox == expected_bbox
+    assert _iou(wkt.loads(w.wkt), loaded_wkt) == 1.0
+
+    wkt_file = tmp_path / "aoi.wkt"
+    wkt_file.write_text(wkt_str)
+    w = Workflow(
+        **kwargs,
+        wkt=wkt_file,
+    )
+    assert _iou(wkt.loads(w.wkt), loaded_wkt) == 1.0
+    assert w.bbox == expected_bbox
