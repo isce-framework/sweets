@@ -211,7 +211,7 @@ class Workflow(YamlModel):
         self._water_mask_filename = self.work_dir / "watermask.flg"
 
         # Expanded version used for internal processing
-        assert isinstance(self.bbox, Bbox)
+        assert isinstance(self.bbox, tuple)
         self._dem_bbox = (
             self.bbox[0] - 0.25,
             self.bbox[1] - 0.25,
