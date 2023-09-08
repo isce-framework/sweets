@@ -314,7 +314,7 @@ def prepare_timeseries(
 
     # copy metadata to meta
     meta = {key: value for key, value in metadata.items()}
-    phase2range = float(meta["WAVELENGTH"]) / (4.0 * np.pi)
+    phase2range = -1 * float(meta["WAVELENGTH"]) / (4.0 * np.pi)
 
     # grab date list from the filename
     date12_list = _get_date_pairs(unw_files)
