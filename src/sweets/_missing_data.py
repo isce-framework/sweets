@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from functools import reduce
 from math import nan
 from pathlib import Path
-from typing import Optional, Sequence, Union
+from typing import Iterable, Optional, Sequence, Union
 
 import geopandas as gpd
 import h5py
@@ -16,6 +16,7 @@ import pandas as pd
 from dolphin._types import Filename
 from osgeo import gdal
 from shapely import geometry, intersection_all, union_all, wkt
+from tqdm.contrib.concurrent import thread_map
 
 from sweets._log import get_log
 
@@ -23,7 +24,7 @@ logger = get_log(__name__)
 
 
 def get_geodataframe(
-    gslc_files: Sequence[Filename], max_workers: int = 5
+    gslc_files: Iterable[Filename], max_workers: int = 5
 ) -> gpd.GeoDataFrame:
     """Get a GeoDataFrame of the CSLC footprints.
 
@@ -34,8 +35,8 @@ def get_geodataframe(
     max_workers : int
         Number of threads to use.
     """
-    with ThreadPoolExecutor(max_workers=max_workers) as e:
-        polygons = list(e.map(get_cslc_polygon, gslc_files))
+    gslc_files = list(gslc_files)  # make sure generator doesn't deplete after first run
+    polygons = thread_map(get_cslc_polygon, gslc_files, max_workers=max_workers)
 
     gdf = gpd.GeoDataFrame(geometry=polygons, crs="EPSG:4326")
     gdf["count"] = 1
