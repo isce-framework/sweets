@@ -177,6 +177,10 @@ def _get_cli_args() -> dict:
 
     args = parser.parse_args()
     arg_dict = vars(args)
+    if not arg_dict:
+        parser.print_help()
+        sys.exit(1)
+
     if arg_dict["func"].__name__ == "create_config":
         for group in config_parser._action_groups:
             # skip positional arguments
@@ -226,8 +230,8 @@ def create_config(kwargs: dict):
         workflow.to_yaml(outfile)
 
 
-def main(args=None):
+def main():
     """Top-level command line interface to the workflows."""
-    args = _get_cli_args()
-    func = args.pop("func")
-    func(args)
+    arg_dict = _get_cli_args()
+    func = arg_dict.pop("func")
+    func(**arg_dict)
