@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
+import rasterio as rio
 from dolphin import io, stitching
 from dolphin._types import Bbox
 from dolphin.opera_utils import group_by_burst
@@ -60,9 +61,19 @@ def stitch_geometry(
     stitched_geom_files = []
     # local_incidence_angle needed by anyone?
     datasets = ["los_east", "los_north", "layover_shadow_mask"]
+    # Descriptions from:
+    # https://github.com/opera-adt/Static_Layers_CSLC-S1_Specs/blob/main/XML/static_layers_cslc-s1.xml
+    descriptions = [
+        "East component of LOS unit vector from target to sensor",
+        "North component of LOS unit vector from target to sensor",
+        (
+            "Layover shadow mask. 0=no layover, no shadow; 1=shadow; 2=layover;"
+            " 3=shadow and layover."
+        ),
+    ]
     # layover_shadow_mask is Int8 with 127 meaning nodata
     nodatas = [0, 0, 127]
-    for ds_name, nodata in zip(datasets, nodatas):
+    for ds_name, nodata, desc in zip(datasets, nodatas, descriptions):
         outfile = geom_dir / f"{ds_name}.tif"
         logger.info(f"Creating {outfile}")
         stitched_geom_files.append(outfile)
@@ -80,10 +91,13 @@ def stitch_geometry(
             out_bounds_epsg=4326,
             target_aligned_pixels=True,
             in_nodata=nodata,
+            out_nodata=nodata,
             strides=strides,
             resample_alg="nearest",
             overwrite=overwrite,
         )
+        with rio.open(outfile, "r+") as src:
+            src.set_band_description(1, desc)
 
     # Create the height (from dem) at the same resolution as the interferograms
     height_file = geom_dir / "height.tif"

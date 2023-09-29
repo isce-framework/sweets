@@ -15,17 +15,13 @@ from compass.utils.helpers import bbox_to_utm
 from dask.distributed import Client
 from dolphin import utils
 from dolphin.io import DEFAULT_HDF5_OPTIONS, get_raster_xysize, load_gdal, write_arr
-from dolphin.workflows.config import OPERA_DATASET_NAME
+from dolphin.opera_utils import OPERA_DATASET_NAME
 from pydantic import BaseModel, Field, model_validator
 from rich.progress import track
 
 from ._log import get_log, log_runtime
 from ._types import Filename
 from .utils import get_intersection_bounds, get_overlapping_bounds
-
-# from dolphin.io import DEFAULT_HDF5_OPTIONS, write_arr
-# from dolphin.workflows.config import OPERA_DATASET_NAME
-
 
 logger = get_log(__name__)
 
