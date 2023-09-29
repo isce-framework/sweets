@@ -12,12 +12,13 @@ from dolphin._types import Bbox
 from dolphin.interferogram import Network
 from dolphin.opera_utils import group_by_burst
 from dolphin.utils import group_by_date, set_num_threads
-from dolphin.workflows.config import OPERA_DATASET_ROOT, YamlModel
+from dolphin.workflows.config import YamlModel
 from pydantic import ConfigDict, Field, field_validator, model_validator
 from shapely import geometry, wkt
 
 from ._burst_db import get_burst_db
 from ._geocode_slcs import create_config_files, run_geocode, run_static_layers
+from ._geometry import stitch_geometry
 from ._log import get_log, log_runtime
 from ._netrc import setup_nasa_netrc
 from ._orbit import download_orbits
@@ -352,59 +353,14 @@ class Workflow(YamlModel):
 
     @log_runtime
     def _stitch_geometry(self, geom_path_list):
-        self.geom_dir.mkdir(parents=True, exist_ok=True)
-
-        file_list = []
-        # TODO: do I want to handle this missing data problem differently?
-        # if there's a burst with the 1st day missing so the static_layers_
-        # file is a different date... is that a problem?
-        for burst, files in group_by_burst(geom_path_list, minimum_images=1).items():
-            if len(files) > 1:
-                logger.warning(f"Found {len(files)} static_layers files for {burst}")
-            file_list.append(files[0])
-        logger.info(f"Stitching {len(file_list)} images.")
-
-        # Convert row/col looks to strides for the right shape
-        looks = self.interferogram_options.looks
-        strides = {"x": looks[1], "y": looks[0]}
-        stitched_geom_files = []
-        # local_incidence_angle needed by anyone?
-        datasets = ["los_east", "los_north", "layover_shadow_mask"]
-        for ds_name in datasets:
-            outfile = self.geom_dir / f"{ds_name}.tif"
-            logger.info(f"Creating {outfile}")
-            stitched_geom_files.append(outfile)
-            # Used to be:
-            # /science/SENTINEL1/CSLC/grids/static_layers
-            # we might also move this to dolphin if we do use the layers
-            ds_path = f"{OPERA_DATASET_ROOT}/data/{ds_name}"
-            cur_files = [io.format_nc_filename(f, ds_name=ds_path) for f in file_list]
-
-            stitching.merge_images(
-                cur_files,
-                outfile=outfile,
-                driver="GTiff",
-                out_bounds=self.bbox,
-                out_bounds_epsg=4326,
-                target_aligned_pixels=True,
-                in_nodata=0,
-                strides=strides,
-                resample_alg="nearest",
-                overwrite=self.overwrite,
-            )
-
-        # Create the height (from dem) at the same resolution as the interferograms
-        height_file = self.geom_dir / "height.tif"
-        logger.info(f"Creating {height_file}")
-        stitched_geom_files.append(height_file)
-        stitching.warp_to_match(
-            input_file=self._dem_filename,
-            match_file=stitched_geom_files[0],
-            output_file=height_file,
-            resample_alg="cubic",
+        return stitch_geometry(
+            geom_path_list=geom_path_list,
+            geom_dir=self.geom_dir,
+            dem_filename=self._dem_filename,
+            looks=self.interferogram_options.looks,
+            bbox=self.bbox,
+            overwrite=self.overwrite,
         )
-
-        return stitched_geom_files
 
     @staticmethod
     def _get_subdataset(f):
