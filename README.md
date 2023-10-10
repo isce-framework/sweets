@@ -24,7 +24,7 @@ mamba env create --file conda-env.yml
 
 or if you have an existing environment:
 ```bash
-mambba env update --name my-existing-env --file conda-env.yml
+mamba env update --name my-existing-env --file conda-env.yml
 ```
 
 3. Install `sweets` via pip:
