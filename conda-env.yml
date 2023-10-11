@@ -24,7 +24,7 @@ dependencies:
   - isce3>=0.14.0
   - compass>=0.4.1
   - dask
-  - dolphin>=0.3.0
+  - dolphin>=0.5.1
   - gdal
   - h5py
   - numpy
