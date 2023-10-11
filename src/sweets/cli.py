@@ -234,4 +234,4 @@ def main():
     """Top-level command line interface to the workflows."""
     arg_dict = _get_cli_args()
     func = arg_dict.pop("func")
-    func(**arg_dict)
+    func(arg_dict)
