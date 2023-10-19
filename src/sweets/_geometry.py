@@ -50,7 +50,7 @@ def stitch_geometry(
     # TODO: do I want to handle this missing data problem differently?
     # if there's a burst with the 1st day missing so the static_layers_
     # file is a different date... is that a problem?
-    for burst, files in group_by_burst(geom_path_list, minimum_images=1).items():
+    for burst, files in group_by_burst(geom_path_list).items():
         if len(files) > 1:
             logger.warning(f"Found {len(files)} static_layers files for {burst}")
         file_list.append(files[0])

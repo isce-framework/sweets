@@ -377,7 +377,7 @@ class Workflow(YamlModel):
         # Group the SLCs by burst:
         # {'t078_165573_iw2': [PosixPath('gslcs/t078_165573_iw2/20221029/...], 't078_...
         burst_to_gslc = group_by_burst(gslc_files)
-        burst_to_ifg = group_by_burst(self._get_existing_burst_ifgs(), minimum_images=1)
+        burst_to_ifg = group_by_burst(self._get_existing_burst_ifgs())
         ifg_path_list = []
         for burst, gslc_files in burst_to_gslc.items():
             subdatasets = [self._get_subdataset(f) for f in gslc_files]
