@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from dolphin._types import Filename
+from matplotlib.colors import BoundaryNorm, ListedColormap
 from osgeo import gdal
 from shapely import geometry, intersection_all, union_all, wkt
 from tqdm.contrib.concurrent import thread_map
@@ -24,7 +25,7 @@ logger = get_log(__name__)
 
 
 def get_geodataframe(
-    gslc_files: Iterable[Filename], max_workers: int = 5
+    gslc_files: Iterable[Filename], max_workers: int = 5, one_per_burst: bool = True
 ) -> gpd.GeoDataFrame:
     """Get a GeoDataFrame of the CSLC footprints.
 
@@ -34,9 +35,26 @@ def get_geodataframe(
         List of CSLC files.
     max_workers : int
         Number of threads to use.
+    one_per_burst : bool, default=True
+        If True, only keep one footprint per burst ID.
     """
     gslc_files = list(gslc_files)  # make sure generator doesn't deplete after first run
-    polygons = thread_map(get_cslc_polygon, gslc_files, max_workers=max_workers)
+    if one_per_burst:
+        from dolphin.opera_utils import group_by_burst
+
+        burst_to_file_list = group_by_burst(gslc_files)
+        slc_files = [file_list[0] for file_list in burst_to_file_list.values()]
+        unique_polygons = thread_map(
+            get_cslc_polygon, slc_files, max_workers=max_workers
+        )
+        assert len(unique_polygons) == len(burst_to_file_list)
+        # Repeat the polygons for each burst
+        polygons: list[geometry.Polygon] = []
+        for burst_id, p in zip(burst_to_file_list, unique_polygons):
+            for _ in range(len(burst_to_file_list[burst_id])):
+                polygons.append(p)
+    else:
+        polygons = thread_map(get_cslc_polygon, gslc_files, max_workers=max_workers)
 
     gdf = gpd.GeoDataFrame(geometry=polygons, crs="EPSG:4326")
     gdf["count"] = 1
@@ -68,13 +86,19 @@ def get_cslc_polygon(
 
 
 def get_common_dates(
-    *, gslc_files: Optional[Sequence[Filename]] = None, gdf=None
+    *,
+    gslc_files: Optional[Sequence[Filename]] = None,
+    gdf=None,
+    max_workers: int = 5,
+    one_per_burst: bool = True,
 ) -> list[str]:
     """Get the date common to all GSLCs."""
     if gdf is None:
         if gslc_files is None:
             raise ValueError("Need `gdf` or `gslc_files`")
-        gdf = get_geodataframe(gslc_files)
+        gdf = get_geodataframe(
+            gslc_files, max_workers=max_workers, one_per_burst=one_per_burst
+        )
 
     grouped_by_burst = _get_per_burst_df(gdf)
     common_dates = list(
@@ -109,27 +133,47 @@ def plot_count_per_burst(
     *,
     gdf: Optional[gpd.GeoDataFrame] = None,
     gslc_files: Optional[Sequence[Filename]] = None,
+    one_per_burst: bool = True,
     ax: Optional[plt.Axes] = None,
 ) -> None:
     """Plot the number of GSLC files found per burst."""
     if gdf is None:
         if gslc_files is None:
             raise ValueError("Need `gdf` or `gslc_files`")
-        gdf = get_geodataframe(gslc_files)
+        gdf = get_geodataframe(gslc_files, one_per_burst=one_per_burst)
     gdf_grouped = _get_per_burst_df(gdf)
 
     if ax is None:
         fig, ax = plt.subplots(ncols=1)
+
+    # Make a unique colormap for the specific count values
+    unique_counts = np.unique(gdf_grouped["count"])
+    # cmap = ListedColormap(plt.cm.tab20.colors[: len(unique_counts)])
+    # norm = BoundaryNorm(unique_counts, cmap.N + 1)
+
+    cmap = ListedColormap(plt.cm.tab10(np.linspace(0, 1, len(unique_counts))))
+    # norm = BoundaryNorm(unique_counts, cmap.N + 1)
+    boundaries = np.concatenate([[unique_counts[0] - 1], unique_counts + 0.5])
+    print(unique_counts, boundaries)
+    norm = BoundaryNorm(boundaries, cmap.N)
+
     kwds = dict(
         column="count",
-        legend=True,
-        cmap="tab10",
+        legend=False,
+        cmap=cmap,
+        norm=norm,
         legend_kwds={"label": "Count", "orientation": "horizontal"},
         linewidth=0.8,
         edgecolor="0.8",
     )
 
     gdf_grouped.plot(ax=ax, **kwds)
+    cbar = plt.colorbar(
+        plt.cm.ScalarMappable(norm=norm, cmap=cmap), ax=ax, orientation="horizontal"
+    )
+    cbar.set_label("Count")
+    cbar.set_ticks(unique_counts)
+    cbar.set_ticklabels(unique_counts)
     return gdf_grouped
 
 
