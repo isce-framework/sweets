@@ -148,13 +148,9 @@ def plot_count_per_burst(
 
     # Make a unique colormap for the specific count values
     unique_counts = np.unique(gdf_grouped["count"])
-    # cmap = ListedColormap(plt.cm.tab20.colors[: len(unique_counts)])
-    # norm = BoundaryNorm(unique_counts, cmap.N + 1)
 
     cmap = ListedColormap(plt.cm.tab10(np.linspace(0, 1, len(unique_counts))))
-    # norm = BoundaryNorm(unique_counts, cmap.N + 1)
     boundaries = np.concatenate([[unique_counts[0] - 1], unique_counts + 0.5])
-    print(unique_counts, boundaries)
     norm = BoundaryNorm(boundaries, cmap.N)
 
     kwds = dict(
@@ -162,7 +158,6 @@ def plot_count_per_burst(
         legend=False,
         cmap=cmap,
         norm=norm,
-        legend_kwds={"label": "Count", "orientation": "horizontal"},
         linewidth=0.8,
         edgecolor="0.8",
     )
