@@ -58,7 +58,7 @@ def get_geodataframe(
 
     gdf = gpd.GeoDataFrame(geometry=polygons, crs="EPSG:4326")
     gdf["count"] = 1
-    gdf["filename"] = [p.stem for p in gslc_files]
+    gdf["filename"] = [Path(p).stem for p in gslc_files]
     gdf["date"] = pd.to_datetime(gdf.filename.str.split("_").str[3])
     gdf["burst_id"] = gdf.filename.str[:15]
     return gdf
