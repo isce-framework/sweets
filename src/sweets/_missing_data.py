@@ -167,7 +167,9 @@ def plot_count_per_burst(
         plt.cm.ScalarMappable(norm=norm, cmap=cmap), ax=ax, orientation="horizontal"
     )
     cbar.set_label("Count")
-    cbar_ticks = [(boundaries[i] + boundaries[i + 1]) / 2 for i in range(len(boundaries) - 1)]
+    cbar_ticks = [
+        (boundaries[i] + boundaries[i + 1]) / 2 for i in range(len(boundaries) - 1)
+    ]
     cbar.set_ticks(cbar_ticks)
     cbar.set_ticklabels(unique_counts)
 
