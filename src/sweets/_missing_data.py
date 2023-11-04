@@ -150,7 +150,7 @@ def plot_count_per_burst(
     unique_counts = np.unique(gdf_grouped["count"])
 
     cmap = ListedColormap(plt.cm.tab10(np.linspace(0, 1, len(unique_counts))))
-    boundaries = np.concatenate([[unique_counts[0] - 1], unique_counts + 0.5])
+    boundaries = np.concatenate([[unique_counts[0] - 1], unique_counts + 1])
     norm = BoundaryNorm(boundaries, cmap.N)
 
     kwds = dict(
@@ -167,8 +167,10 @@ def plot_count_per_burst(
         plt.cm.ScalarMappable(norm=norm, cmap=cmap), ax=ax, orientation="horizontal"
     )
     cbar.set_label("Count")
-    cbar.set_ticks(unique_counts)
+    cbar_ticks = [(boundaries[i] + boundaries[i + 1]) / 2 for i in range(len(boundaries) - 1)]
+    cbar.set_ticks(cbar_ticks)
     cbar.set_ticklabels(unique_counts)
+
     return gdf_grouped
 
 
