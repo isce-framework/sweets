@@ -10,9 +10,9 @@ import numpy as np
 from dolphin import io, stitching, unwrap
 from dolphin._types import Bbox
 from dolphin.interferogram import Network
-from dolphin.opera_utils import group_by_burst
 from dolphin.utils import group_by_date, set_num_threads
 from dolphin.workflows.config import YamlModel
+from opera_utils import group_by_burst
 from pydantic import ConfigDict, Field, field_validator, model_validator
 from shapely import geometry, wkt
 

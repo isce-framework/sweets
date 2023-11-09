@@ -18,10 +18,10 @@ import h5py
 import numpy as np
 import pyproj
 from dolphin import io
-from dolphin.opera_utils import OPERA_DATASET_ROOT
 from dolphin.utils import full_suffix, get_dates
 from mintpy.utils import arg_utils, ptime, readfile, writefile
 from mintpy.utils.utils0 import calc_azimuth_from_east_north_obs
+from opera_utils import OPERA_DATASET_ROOT
 
 ####################################################################################
 EXAMPLE = """example:
