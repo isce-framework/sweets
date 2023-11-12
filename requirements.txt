@@ -6,6 +6,7 @@
 dask>=2022.6.0
 h5py>=3.6
 numpy>=1.20
+opera-utils>0.1.1
 pandas
 pydantic>=2
 pyproj>=3.2

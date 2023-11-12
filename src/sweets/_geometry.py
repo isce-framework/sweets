@@ -6,7 +6,7 @@ from typing import Optional
 import rasterio as rio
 from dolphin import io, stitching
 from dolphin._types import Bbox
-from dolphin.opera_utils import group_by_burst
+from opera_utils import group_by_burst
 
 from ._log import get_log
 from ._types import Filename

@@ -40,7 +40,7 @@ def get_geodataframe(
     """
     gslc_files = list(gslc_files)  # make sure generator doesn't deplete after first run
     if one_per_burst:
-        from dolphin.opera_utils import group_by_burst
+        from opera_utils import group_by_burst
 
         burst_to_file_list = group_by_burst(gslc_files)
         slc_files = [file_list[0] for file_list in burst_to_file_list.values()]
