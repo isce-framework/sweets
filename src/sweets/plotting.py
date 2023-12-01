@@ -132,6 +132,7 @@ def browse_ifgs(
     layout="box",
     axes: Optional[plt.Axes] = None,
     ref_unw: Optional[tuple[float, float]] = None,
+    overview: Optional[int] = None,
     subsample_factor: Union[int, tuple[int, int]] = 1,
 ):
     """Browse interferograms in a sweets directory.
@@ -171,6 +172,8 @@ def browse_ifgs(
     ref_unw : Optional[tuple[int, int]]
         Reference point for all .unw files.
         If not passed, subtracts the mean of each file.
+    overview : int, optional
+        Load an overview of the image instead of full res.
     subsample_factor : int or tuple[int, int]
         Amount to downsample when loading images.
     """
@@ -229,10 +232,14 @@ def browse_ifgs(
         fig = axes[0].figure
 
     # imgs = np.stack([io.load_gdal(f) for f in file_list])
-    img = io.load_gdal(file_list[0], subsample_factor=subsample_factor)
+    img = io.load_gdal(
+        file_list[0], subsample_factor=subsample_factor, overview=overview
+    )
     phase = np.angle(img)
     if cor_list is not None:
-        cor = io.load_gdal(cor_list[0], subsample_factor=subsample_factor)
+        cor = io.load_gdal(
+            cor_list[0], subsample_factor=subsample_factor, overview=overview
+        )
     else:
         cor = np.abs(img)
     titles = [f.stem for f in file_list]  # type: ignore
@@ -380,7 +387,7 @@ def _make_dismph_colors():
 
 try:
     plt.get_cmap("dismph")
-except:
+except ValueError:
     DISMPH = LinearSegmentedColormap.from_list("dismph", _make_dismph_colors().T / 256)
     plt.register_cmap(cmap=DISMPH)
 
