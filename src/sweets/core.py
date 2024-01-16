@@ -9,7 +9,6 @@ import h5py
 import numpy as np
 from dolphin import io, stitching, unwrap
 from dolphin._dates import group_by_date
-from dolphin._types import Bbox
 from dolphin.interferogram import Network
 from dolphin.utils import set_num_threads
 from dolphin.workflows.config import YamlModel
@@ -42,10 +41,10 @@ class Workflow(YamlModel):
         validate_default=True,
     )
 
-    bbox: Optional[Bbox] = Field(
+    bbox: Optional[tuple[float, float, float, float]] = Field(
         None,
         description=(
-            "Area of interest: (left, bottom, right, top) longitude/latitude "
+            "Area of interest: [left, bottom, right, top] longitude/latitude "
             "e.g. `bbox=(-150.2,65.0,-150.1,65.5)`"
         ),
     )
