@@ -8,11 +8,10 @@ from typing import Any, Literal, Optional
 import h5py
 import numpy as np
 from dolphin import io, stitching, unwrap
-from dolphin._dates import group_by_date
 from dolphin.interferogram import Network
 from dolphin.utils import set_num_threads
 from dolphin.workflows.config import YamlModel
-from opera_utils import group_by_burst
+from opera_utils import group_by_burst, group_by_date
 from pydantic import ConfigDict, Field, field_validator, model_validator
 from shapely import geometry, wkt
 

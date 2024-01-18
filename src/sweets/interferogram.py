@@ -13,9 +13,8 @@ import numpy as np
 import rioxarray
 from compass.utils.helpers import bbox_to_utm
 from dask.distributed import Client
-from dolphin import utils
 from dolphin.io import DEFAULT_HDF5_OPTIONS, get_raster_xysize, load_gdal, write_arr
-from opera_utils import OPERA_DATASET_NAME
+from opera_utils import OPERA_DATASET_NAME, get_dates
 from pydantic import BaseModel, Field, model_validator
 from rich.progress import track
 
@@ -229,8 +228,8 @@ def _form_ifg_name(slc1: Filename, slc2: Filename, out_dir: Filename) -> Path:
         Path to the interferogram file.
 
     """
-    date1 = utils.get_dates(slc1)[0]
-    date2 = utils.get_dates(slc2)[0]
+    date1 = get_dates(slc1)[0]
+    date2 = get_dates(slc2)[0]
     fmt = "%Y%m%d"
     ifg_name = f"{date1.strftime(fmt)}_{date2.strftime(fmt)}.h5"
     return Path(out_dir) / ifg_name
