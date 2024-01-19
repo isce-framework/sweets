@@ -24,6 +24,7 @@ dependencies:
   # - shapely>=1.8
   - isce3>=0.14.0
   - compass>=0.4.1
+  - backoff
   - dask
   - dolphin>=0.5.1
   - gdal
