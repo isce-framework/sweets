@@ -38,5 +38,5 @@ dependencies:
   - rich
   - rioxarray
   - sardem
-  - sentineleof
+  - sentineleof>=0.9.5
   - shapely

@@ -17,10 +17,8 @@ Usage:
 """
 
 import logging
-import time
-from collections.abc import Callable
-from functools import wraps
 
+from dolphin._log import log_runtime
 from rich.console import Console
 from rich.logging import RichHandler
 
@@ -81,34 +79,3 @@ def format_log(logger: logging.Logger, debug: bool = False) -> logging.Logger:
         logger.setLevel(debug)
 
     return logger
-
-
-def log_runtime(f: Callable) -> Callable:
-    """Decorate a function to time how long it takes to run.
-
-    Usage
-    -----
-    @log_runtime
-    def test_func():
-        return 2 + 4
-    """
-    logger = get_log(__name__)
-
-    @wraps(f)
-    def wrapper(*args, **kwargs):
-        t1 = time.time()
-
-        result = f(*args, **kwargs)
-
-        t2 = time.time()
-        elapsed_seconds = t2 - t1
-        elapsed_minutes = elapsed_seconds / 60.0
-        time_string = (
-            f"Total elapsed time for {f.__module__}.{f.__name__} : "
-            f"{elapsed_minutes:.2f} minutes ({elapsed_seconds:.2f} seconds)"
-        )
-
-        logger.info(time_string)
-        return result
-
-    return wrapper
