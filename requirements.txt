@@ -13,5 +13,5 @@ pyproj>=3.2
 requests>=2.10
 rich>=12.0
 sardem>=0.11.1
-sentineleof>=0.6.5
+sentineleof>=0.9.5
 shapely>=1.8

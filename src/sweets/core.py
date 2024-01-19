@@ -7,18 +7,18 @@ from typing import Any, Literal, Optional
 
 import h5py
 import numpy as np
-from dolphin import io, stitching, unwrap
-from dolphin._dates import group_by_date
+from dolphin import stitching, unwrap
 from dolphin.interferogram import Network
-from dolphin.utils import set_num_threads
+from dolphin.utils import _format_date_pair, set_num_threads
 from dolphin.workflows.config import YamlModel
-from opera_utils import group_by_burst
+from opera_utils import group_by_burst, group_by_date
 from pydantic import ConfigDict, Field, field_validator, model_validator
 from shapely import geometry, wkt
 
 from ._burst_db import get_burst_db
 from ._geocode_slcs import create_config_files, run_geocode, run_static_layers
 from ._geometry import stitch_geometry
+from ._ionosphere import download_ionosphere
 from ._log import get_log, log_runtime
 from ._netrc import setup_nasa_netrc
 from ._orbit import download_orbits
@@ -190,12 +190,13 @@ class Workflow(YamlModel):
         logger.info(f"Loading config from {config_file}")
         return cls.from_yaml(config_file)
 
-    # Override the constructor to allow recursively construct without validation
     @classmethod
-    def construct(cls, **kwargs):
+    def model_construct(cls, **kwargs):
+        """Override the constructor to allow recursively construct without validation."""
+
         if "asf_query" not in kwargs:
             kwargs["asf_query"] = ASFQuery._construct_empty()
-        return super().construct(
+        return super().model_construct(
             **kwargs,
         )
 
@@ -205,6 +206,7 @@ class Workflow(YamlModel):
         self.log_dir = self.work_dir / "logs"
         self.gslc_dir = self.work_dir / "gslcs"
         self.geom_dir = self.work_dir / "geometry"
+        self.iono_dir = self.work_dir / "ionosphere"
         self.ifg_dir = self.work_dir / "interferograms"
         self.stitched_ifg_dir = self.ifg_dir / "stitched"
         self.unw_dir = self.ifg_dir / "unwrapped"
@@ -294,6 +296,8 @@ class Workflow(YamlModel):
             out_dir=self.gslc_dir,
             overwrite=self.overwrite,
             using_zipped=not self.asf_query.unzip,
+            # enable_corrections=False,
+            tec_dir=self.iono_dir,
         )
 
         def cfg_to_filename(cfg_path: Path) -> str:
@@ -350,6 +354,14 @@ class Workflow(YamlModel):
         run_func = partial(run_static_layers, log_dir=self.log_dir)
         with ProcessPoolExecutor(max_workers=self.n_workers) as _client:
             new_files = _client.map(run_func, todo_static)
+
+    def _download_ionosphere(self, slc_files) -> list[Path]:
+        """Download one IONEX file per SLC."""
+        self.iono_dir.mkdir(parents=True, exist_ok=True)
+        outputs = []
+        for slc_file in slc_files:
+            outputs.append(download_ionosphere(slc_file, self.iono_dir))
+        return outputs
 
     @log_runtime
     def _stitch_geometry(self, geom_path_list):
@@ -425,7 +437,7 @@ class Workflow(YamlModel):
         stitched_ifg_files = []
         for dates, cur_images in grouped_images.items():
             logger.info(f"{dates}: Stitching {len(cur_images)} images.")
-            outfile = self.stitched_ifg_dir / (io._format_date_pair(*dates) + ".int")
+            outfile = self.stitched_ifg_dir / (_format_date_pair(*dates) + ".int")
             stitched_ifg_files.append(outfile)
 
             stitching.merge_images(
@@ -517,6 +529,7 @@ class Workflow(YamlModel):
             burst_db_file = get_burst_db()
             download_orbits(self.asf_query.out_dir, self.orbit_dir)
             rslc_files = self._get_existing_rslcs()
+            self._download_ionosphere(rslc_files)
             self._geocode_slcs(rslc_files, self._dem_filename, burst_db_file)
 
             geom_path_list = self._get_burst_static_layers()

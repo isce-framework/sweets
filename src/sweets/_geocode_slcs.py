@@ -101,6 +101,7 @@ def create_config_files(
     burst_db_file: Filename,
     dem_file: Filename,
     orbit_dir: Filename,
+    tec_dir: Optional[Filename] = None,
     bbox: Optional[Tuple[float, ...]] = None,
     x_posting: float = 5,
     y_posting: float = 10,
@@ -108,6 +109,7 @@ def create_config_files(
     out_dir: Filename = Path("gslcs"),
     overwrite: bool = False,
     using_zipped: bool = False,
+    enable_corrections: bool = True,
 ) -> List[Path]:
     """Create the geocoding config files for a stack of SLCs.
 
@@ -121,6 +123,9 @@ def create_config_files(
         File containing the DEM
     orbit_dir : Filename
         Directory containing the orbit files
+    tec_dir : Filename, optional
+        Directory containing the ionosphere TEC files.
+        If None, skips correction.
     bbox : Optional[Tuple[float, ...]], optional
         [lon_min, lat_min, lon_max, lat_max] to limit the processing.
         Note that this does not change each burst's bounding box, but
@@ -139,6 +144,9 @@ def create_config_files(
     using_zipped : bool, optional
         If true, will search for. zip files instead of unzipped .SAFE directories.
         By default False.
+    enable_corrections : bool, default = True
+        If true, computes model-based corrections to geocoding.
+        See `compass` for more details on all corrections.
 
     Returns
     -------
@@ -167,5 +175,7 @@ def create_config_files(
         x_spac=x_posting,
         y_spac=y_posting,
         using_zipped=using_zipped,
+        enable_corrections=enable_corrections,
+        tec_dir=tec_dir,
     )
     return sorted((Path(out_dir) / "runconfigs").glob("*"))
