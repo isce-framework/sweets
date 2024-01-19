@@ -7,9 +7,9 @@ from typing import Any, Literal, Optional
 
 import h5py
 import numpy as np
-from dolphin import io, stitching, unwrap
+from dolphin import stitching, unwrap
 from dolphin.interferogram import Network
-from dolphin.utils import set_num_threads
+from dolphin.utils import set_num_threads, _format_date_pair
 from dolphin.workflows.config import YamlModel
 from opera_utils import group_by_burst, group_by_date
 from pydantic import ConfigDict, Field, field_validator, model_validator
@@ -424,7 +424,7 @@ class Workflow(YamlModel):
         stitched_ifg_files = []
         for dates, cur_images in grouped_images.items():
             logger.info(f"{dates}: Stitching {len(cur_images)} images.")
-            outfile = self.stitched_ifg_dir / (io._format_date_pair(*dates) + ".int")
+            outfile = self.stitched_ifg_dir / (_format_date_pair(*dates) + ".int")
             stitched_ifg_files.append(outfile)
 
             stitching.merge_images(
