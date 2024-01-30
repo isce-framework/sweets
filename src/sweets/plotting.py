@@ -5,6 +5,7 @@ from typing import Optional, Sequence, Tuple, Union
 
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
+import colorcet
 import geopandas as gpd
 import ipywidgets
 import matplotlib as mpl
@@ -14,7 +15,6 @@ import numpy as np
 from cartopy.io import shapereader
 from cartopy.mpl.gridliner import LATITUDE_FORMATTER, LONGITUDE_FORMATTER
 from dolphin import io
-from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.image import AxesImage
 from numpy.typing import ArrayLike
 from shapely.geometry import Polygon, box
@@ -26,7 +26,7 @@ from .core import UNW_SUFFIX
 def plot_ifg(
     img: Optional[ArrayLike] = None,
     filename: Optional[Filename] = None,
-    phase_cmap: str = "dismph",
+    phase_cmap: str = colorcet.m_CET_C8,
     ax: Optional[plt.Axes] = None,
     add_colorbar: bool = True,
     title: str = "",
@@ -324,6 +324,7 @@ def browse_arrays(
     ref_unw : Optional[tuple[int, int]]
         Reference point for all .unw files.
         If not passed, subtracts the mean of each file.
+    cmap : str or matplotlib.cmap
     subsample_factor : int or tuple[int, int]
         Amount to downsample when loading images.
     """
@@ -343,7 +344,7 @@ def browse_arrays(
 
     if num_panels == 2:
         # plot once with colorbar
-        axim_img = axes[0].imshow(img, cmap="dismph", vmin=-3.14, vmax=3.14)
+        axim_img = axes[0].imshow(img, cmap=cmap, vmin=-3.14, vmax=3.14)
         amp_vmax = np.percentile(np.abs(img_stack), 99)
         axim_amp = axes[1].imshow(amp, cmap=cmap, vmax=amp_vmax)
 
@@ -365,36 +366,6 @@ def browse_arrays(
 
         if titles:
             fig.suptitle(titles[idx])
-
-
-def _make_dismph_colors():
-    """Create a cyclic colormap for insar phase."""
-    red, green, blue = [], [], []
-    for i in range(120):
-        red.append(i * 2.13 * 155.0 / 255.0 + 100)
-        green.append((119.0 - i) * 2.13 * 155.0 / 255.0 + 100.0)
-        blue.append(255)
-    for i in range(120):
-        red.append(255)
-        green.append(i * 2.13 * 155.0 / 255.0 + 100.0)
-        blue.append((119 - i) * 2.13 * 155.0 / 255.0 + 100.0)
-    for i in range(120):
-        red.append((119 - i) * 2.13 * 155.0 / 255.0 + 100.0)
-        green.append(255)
-        blue.append(i * 2.13 * 155.0 / 255.0 + 100.0)
-    return np.vstack((red, green, blue))
-
-
-try:
-    plt.get_cmap("dismph")
-except ValueError:
-    DISMPH = LinearSegmentedColormap.from_list("dismph", _make_dismph_colors().T / 256)
-    plt.register_cmap(cmap=DISMPH)
-
-
-# # @lru_cache(maxsize=30)
-# def io.load_gdal(filename: , subsample_factor=subsample_factorFilename):
-#     return io.load_gdal(filename)
 
 
 def plot_area_of_interest(

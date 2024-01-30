@@ -3,6 +3,7 @@
 # Conda ones
 # SYNC THIS WITH conda-env
 # These are the packages easily-installable through pip
+colorcet
 dask>=2022.6.0
 h5py>=3.6
 numpy>=1.20
