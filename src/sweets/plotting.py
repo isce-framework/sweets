@@ -290,43 +290,14 @@ def browse_arrays(
     img_stack: np.ndarray,
     cmap: str | None = None,
     titles: Sequence[str] | None = None,
-    axes: Optional[plt.Axes] = None,
+    axes: plt.Axes | None = None,
+    vm: int | None = None,
     figsize=(6, 6),
     **subplots_dict,
 ):
     """Browse a stack of images interactively.
 
     Like `browse_ifgs`, but for any pre-loaded numpy array.
-
-    Parameters
-    ----------
-    img_stack : np.ndarray
-        3D numpy array holding images.
-    cmap : str
-        colormap to plot `img_stack` with
-    titles : Sequence[str], optional
-        Title to use for each image. Length should match `len(img_stack)`
-    amp_image : ArrayLike, optional
-        If provided, plots an amplitude image along with the ifgs for visual reference.
-    figsize : tuple
-        Figure size.
-    vm_unw : float
-        Value used as min/max cutoff for unwrapped phase plot.
-    vm_cor : float
-        Value used as min/max cutoff for correlation phase plot.
-    unw_suffix : str, default = ".unw.tif"
-        Suffix to use to search for unwrapped phase images.
-    layout : str, default="box"
-        Layout of the plot. Can be "box, "horizontal" or "vertical".
-    axes : matplotlib.pyplot.Axes
-        If provided, use this array of axes to plot the images.
-        Otherwise, creates a new figure.
-    ref_unw : Optional[tuple[int, int]]
-        Reference point for all .unw files.
-        If not passed, subtracts the mean of each file.
-    cmap : str or matplotlib.cmap
-    subsample_factor : int or tuple[int, int]
-        Amount to downsample when loading images.
     """
     num_panels = 2 if np.iscomplexobj(img_stack) else 1
     if axes is None:
@@ -351,7 +322,9 @@ def browse_arrays(
         fig.colorbar(axim_img, ax=axes[0])
         fig.colorbar(axim_amp, ax=axes[1])
     else:
-        axim_img = axes[0].imshow(img, cmap=cmap)
+        vm = vm or np.max(np.abs(img))
+        axim_img = axes[0].imshow(img, cmap=cmap, vmin=-vm, vmax=vm)
+        fig.colorbar(axim_img, ax=axes[0])
         axim_amp = None
 
     @ipywidgets.interact(idx=(0, len(img_stack) - 1))

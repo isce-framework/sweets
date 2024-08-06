@@ -32,7 +32,7 @@ repos:
     hooks:
       - id: mypy
         additional_dependencies:
-        - types-pkg_resources
+        - types-setuptools
         - types-python-dateutil
         - types-requests
         - "pydantic>=2.1"
