@@ -25,10 +25,9 @@ import sys
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
-from enum import Enum
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Literal
 from urllib.parse import urlencode
 
 import requests
@@ -44,11 +43,6 @@ from ._unzip import unzip_all
 logger = get_log(__name__)
 
 DIRNAME = os.path.dirname(os.path.abspath(__file__))
-
-
-class FlightDirection(str, Enum):
-    ASCENDING = "ASCENDING"
-    DESCENDING = "DESCENDING"
 
 
 class ASFQuery(YamlModel):
@@ -89,7 +83,7 @@ class ASFQuery(YamlModel):
         alias="relativeOrbit",
         description="Path number",
     )
-    flight_direction: Optional[FlightDirection] = Field(
+    flight_direction: Optional[Literal["ASCENDING", "DESCENDING"]] = Field(
         None,
         alias="flightDirection",
         description="Direction of satellite during acquisition.",
