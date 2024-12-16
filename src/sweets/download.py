@@ -27,7 +27,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Literal
 from urllib.parse import urlencode
 
 import requests
@@ -83,11 +83,10 @@ class ASFQuery(YamlModel):
         alias="relativeOrbit",
         description="Path number",
     )
-    flight_direction: Optional[str] = Field(
+    flight_direction: Optional[Literal["ASCENDING", "DESCENDING"]] = Field(
         None,
         alias="flightDirection",
-        choices=["ASCENDING", "DESCENDING"],
-        description="Ascending or descending",
+        description="Direction of satellite during acquisition.",
     )
     frames: Optional[tuple[int, int]] = Field(
         None,
