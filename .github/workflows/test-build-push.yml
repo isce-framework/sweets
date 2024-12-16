@@ -14,41 +14,43 @@ jobs:
   pytest:
     strategy:
       matrix:
-        os:
-          - label: Linux
-            runner: ubuntu-latest
-          - label: macOS
-            runner: macos-latest
+        os: [ubuntu-latest, macos-14]
 
-        deps:
-          - label: Latest
-            spec: ""
-
-      fail-fast: false
-    name: ${{ matrix.os.label }} • ${{ matrix.deps.label }}
-    runs-on: ${{ matrix.os.runner }}
+      fail-fast: true
+    runs-on: ${{ matrix.os }}
     defaults:
       run:
         shell: bash -l {0}
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
       - name: Setup environment
-        uses: mamba-org/provision-with-micromamba@main
+        uses: mamba-org/setup-micromamba@v2
         with:
           environment-file: conda-env.yml
           environment-name: sweets-env
-          extra-specs: ${{ matrix.deps.spec }}
-          channels: conda-forge
+          # persist on the same day.
+          cache-environment-key: environment-${{ steps.date.outputs.date }}
+          cache-downloads-key: downloads-${{ steps.date.outputs.date }}
+          generate-run-shell: false
+          # create-args: ${{ matrix.deps.spec }}
+          condarc: |
+            channels:
+              - conda-forge
       - name: Install
         run: |
-          pip install --no-deps .
+          python -m pip install --no-deps .
       - name: Install test dependencies
         run: |
           micromamba install -f tests/requirements.txt -c conda-forge
-      - name: Test
+      - name: Enable numba boundscheck for better error catching
         run: |
-          pytest
+          echo "NUMBA_BOUNDSCHECK=1" >> $GITHUB_ENV
+          echo "TQDM_DISABLE=1" >> $GITHUB_ENV
+      - name: Test (with numba boundscheck on)
+        run: |
+          pytest -n0 -vv
+
 
   dockerize: # Based on Mintpy: https://github.com/insarlab/MintPy/blob/5ca554fef324b816f9130feec567e2cf463e41d2/.github/workflows/build-n-publish-to-pypi.yml
     name: Build Docker image and push to GitHub Container Registry
