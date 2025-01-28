@@ -12,6 +12,8 @@ dependencies:
   - dask
   - dolphin>=0.5.1
   - gdal
+  - libgdal-netcdf
+  - libgdal-hdf5
   - h5py
   - numpy
   - opera-utils
