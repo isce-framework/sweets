@@ -8,14 +8,20 @@ try:
     from sweets._missing_data import Stats, get_bad_files, get_raster_stats, is_valid
 
     MISSING_DEPS = False
-except ImportError:
-    MISSING_DEPS = True
+except ImportError as e:
+    if "geopandas" in e.msg or "matplotlib" in e.msg:
+        MISSING_DEPS = True
+    else:
+        MISSING_DEPS = False
 
 
 # Fixture for creating temporary files
-@pytest.mark.skipif(MISSING_DEPS, reason="geopandas/matplotlib not installed")
 @pytest.fixture()
 def slc_file_list(tmp_path):
+    # Cannot skip fixture, see:
+    # https://docs.pytest.org/en/stable/deprecations.html#applying-a-mark-to-a-fixture-function
+    if MISSING_DEPS:
+        pytest.skip(reason="geopandas/matplotlib not installed")
     shape = (10, 100, 100)
     nodata = np.nan  # Set nodata value
 

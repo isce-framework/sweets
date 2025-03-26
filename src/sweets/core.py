@@ -9,7 +9,7 @@ import h5py
 import numpy as np
 from dolphin import stitching, unwrap
 from dolphin.interferogram import Network
-from dolphin.utils import set_num_threads, _format_date_pair
+from dolphin.utils import _format_date_pair, set_num_threads
 from dolphin.workflows.config import YamlModel
 from opera_utils import group_by_burst, group_by_date
 from pydantic import ConfigDict, Field, field_validator, model_validator
@@ -176,7 +176,7 @@ class Workflow(YamlModel):
         else:
             # otherwise, make WKT just a 5 point polygon
             self.wkt = wkt.dumps(geometry.box(*self.bbox))
-        return values
+        return self
 
     def save(self, config_file: Filename = "sweets_config.yaml"):
         """Save the workflow configuration."""
