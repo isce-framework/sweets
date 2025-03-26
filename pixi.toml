@@ -1,0 +1,28 @@
+[project]
+channels = ["conda-forge"]
+description = "git@github.com:Jaapel/sweets.git"
+name = "sweets"
+platforms = ["osx-arm64"]
+license-file = "LICENSE"
+readme = "README.md"
+homepage = "https://github.com/scottstanie/sweets"
+repository = "https://github.com/scottstanie/sweets"
+
+[tasks]
+test = "pytest"
+
+[dependencies]
+compass = "*"
+distributed = "*"
+dolphin = "*"
+opera-utils = ">0.1.1"
+rioxarray = "*"
+
+[pypi-dependencies]
+sweets = { path = ".", editable = true}
+
+[feature.test]
+dependencies = { pytest = ">=8.3.5,<9"}
+
+[environments.default]
+features = ["test"]
