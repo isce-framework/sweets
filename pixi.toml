@@ -1,6 +1,6 @@
 [project]
 channels = ["conda-forge"]
-description = "git@github.com:Jaapel/sweets.git"
+description = "git@github.com:isce-framework/sweets.git"
 name = "sweets"
 platforms = ["osx-arm64"]
 license-file = "LICENSE"
