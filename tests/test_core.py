@@ -1,3 +1,5 @@
+from typing import List
+
 import pytest
 from shapely import wkt
 
@@ -7,7 +9,7 @@ from sweets.download import ASFQuery
 
 class TestWorkflow:
     @pytest.fixture(scope="class")
-    def bbox(self) -> list[float]:
+    def bbox(self) -> List[float]:
         return [-102.2, 32.15, -102.1, 32.22]
 
     def test_workflow_construct(self, tmp_path, bbox):
