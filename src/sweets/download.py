@@ -27,7 +27,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Optional, Literal
+from typing import Any, Literal, Optional
 from urllib.parse import urlencode
 
 import requests

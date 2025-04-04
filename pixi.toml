@@ -10,6 +10,8 @@ repository = "https://github.com/isce-framework/sweets"
 
 [tasks]
 test = "pytest"
+install = { depends-on = "pre-commit_install"}
+pre-commit_install = "pre-commit install"
 
 [dependencies]
 compass = "*"
@@ -22,8 +24,8 @@ rioxarray = "*"
 [pypi-dependencies]
 sweets = { path = ".", editable = true}
 
-[feature.test]
-dependencies = { pytest = ">=8.3.5,<9"}
+[feature.dev]
+dependencies = { pytest = ">=8.3.5,<9", pre_commit = "*"}
 
 [environments.default]
-features = ["test"]
+features = ["dev"]
