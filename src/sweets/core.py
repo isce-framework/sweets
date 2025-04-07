@@ -10,7 +10,12 @@ import numpy as np
 from dolphin import stitching, unwrap
 from dolphin.interferogram import Network
 from dolphin.utils import _format_date_pair, set_num_threads
-from dolphin.workflows.config import YamlModel
+from dolphin.workflows.config import (
+    SnaphuOptions,
+    UnwrapMethod,
+    UnwrapOptions,
+    YamlModel,
+)
 from opera_utils import group_by_burst, group_by_date
 from pydantic import ConfigDict, Field, field_validator, model_validator
 from shapely import geometry, wkt
@@ -126,6 +131,13 @@ class Workflow(YamlModel):
         if isinstance(values, dict):
             if "asf_query" not in values:
                 values["asf_query"] = {}
+            elif isinstance(values["asf_query"], ASFQuery):
+                values["asf_query"] = values["asf_query"].model_dump(
+                    exclude_unset=True, by_alias=True
+                )
+            elif not isinstance(values["asf_query"], dict):
+                # forward validation of unknown object to ASFQuery
+                ASFQuery.model_validate(values["asf_query"])
             # Orbits dir and data dir can be outside the working dir if someone
             # wants to point to existing data.
             # So we only want to move them inside the working dir if they weren't
@@ -191,11 +203,15 @@ class Workflow(YamlModel):
 
     # Override the constructor to allow recursively construct without validation
     @classmethod
-    def construct(cls, **kwargs):
-        if "asf_query" not in kwargs:
-            kwargs["asf_query"] = ASFQuery._construct_empty()
-        return super().construct(
-            **kwargs,
+    def construct(cls, **values):
+        cls.model_construct(**values)
+
+    @classmethod
+    def model_construct(cls, _fields_set=None, **values):
+        if "asf_query" not in values:
+            values["asf_query"] = ASFQuery.model_construct()
+        return super().model_construct(
+            **values,
         )
 
     def __init__(self, **data: Any) -> None:
@@ -462,6 +478,7 @@ class Workflow(YamlModel):
             )
 
         ifg_to_future = {}
+        # TODO: dolphin allows for parallel jobs. Use `dolphin.unwrap.run` instead
         with ProcessPoolExecutor(max_workers=self.n_workers) as _client:
             for ifg_file, cor_file in zip(ifg_files, cor_files):
                 outfile = self.unw_dir / ifg_file.name.replace(".int", UNW_SUFFIX)
@@ -475,9 +492,12 @@ class Workflow(YamlModel):
                         corr_filename=cor_file,
                         unw_filename=outfile,
                         nlooks=int(np.prod(self.interferogram_options.looks)),
-                        mask_file=self._warped_water_mask,
+                        mask_filename=self._warped_water_mask,
+                        unwrap_options=UnwrapOptions(
+                            unwrap_method=UnwrapMethod.SNAPHU,
+                            snaphu_options=SnaphuOptions(init_method="mcf"),
+                        ),
                         # do_tile=False,  # Probably make this an option too
-                        init_method="mst",  # TODO: make this an option?
                     )
 
             # Add in the rest of the ones we ran
