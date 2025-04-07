@@ -478,7 +478,7 @@ class Workflow(YamlModel):
             )
 
         ifg_to_future = {}
-        # dolphin allows for parallel jobs, use PorcessPool here?
+        # TODO: dolphin allows for parallel jobs. Use `dolphin.unwrap.run` instead
         with ProcessPoolExecutor(max_workers=self.n_workers) as _client:
             for ifg_file, cor_file in zip(ifg_files, cor_files):
                 outfile = self.unw_dir / ifg_file.name.replace(".int", UNW_SUFFIX)
