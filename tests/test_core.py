@@ -107,6 +107,9 @@ class TestWorkflow:
         assert w.work_dir / "dem.dat" == w.dem_filename
         assert w.work_dir / "watermask.flg" == w.water_mask_filename
 
+        # assert computed fields work
+        assert w.log_dir == w.work_dir / "logs"
+
 
 def _iou(poly1, poly2):
     return poly1.intersection(poly2).area / poly1.union(poly2).area

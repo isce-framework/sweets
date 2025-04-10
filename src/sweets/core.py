@@ -229,39 +229,39 @@ class Workflow(YamlModel):
         )
 
     # Track the directories that need to be created at start of workflow
+    @computed_field  # type: ignore[prop-decorator]
     @property
-    @computed_field
     def log_dir(self) -> Path:
         return self.work_dir / "logs"
 
+    @computed_field  # type: ignore[prop-decorator]
     @property
-    @computed_field
     def gslc_dir(self) -> Path:
         return self.work_dir / "gslcs"
 
+    @computed_field  # type: ignore[prop-decorator]
     @property
-    @computed_field
     def geom_dir(self) -> Path:
         return self.work_dir / "geometry"
 
+    @computed_field  # type: ignore[prop-decorator]
     @property
-    @computed_field
     def ifg_dir(self) -> Path:
         return self.work_dir / "interferograms"
 
+    @computed_field  # type: ignore[prop-decorator]
     @property
-    @computed_field
     def stitched_ifg_dir(self) -> Path:
         return self.ifg_dir / "stitched"
 
+    @computed_field  # type: ignore[prop-decorator]
     @property
-    @computed_field
     def unw_dir(self) -> Path:
         return self.ifg_dir / "unwrapped"
 
     # Expanded version used for internal processing
+    @computed_field  # type: ignore[prop-decorator]
     @property
-    @computed_field
     def _dem_bbox(self) -> Tuple[float, float, float, float]:
         assert isinstance(self.bbox, tuple)
         return (
