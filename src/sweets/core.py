@@ -3,7 +3,7 @@ from __future__ import annotations
 from concurrent.futures import Future, ProcessPoolExecutor, ThreadPoolExecutor, wait
 from functools import partial
 from pathlib import Path
-from typing import Any, Literal, Optional
+from typing import Any, Literal, Optional, Tuple
 
 import h5py
 import numpy as np
@@ -17,7 +17,7 @@ from dolphin.workflows.config import (
     YamlModel,
 )
 from opera_utils import group_by_burst, group_by_date
-from pydantic import ConfigDict, Field, field_validator, model_validator
+from pydantic import ConfigDict, Field, computed_field, field_validator, model_validator
 from shapely import geometry, wkt
 
 from ._burst_db import get_burst_db
@@ -228,19 +228,43 @@ class Workflow(YamlModel):
             **values,
         )
 
-    def __init__(self, **data: Any) -> None:
-        super().__init__(**data)
-        # Track the directories that need to be created at start of workflow
-        self.log_dir = self.work_dir / "logs"
-        self.gslc_dir = self.work_dir / "gslcs"
-        self.geom_dir = self.work_dir / "geometry"
-        self.ifg_dir = self.work_dir / "interferograms"
-        self.stitched_ifg_dir = self.ifg_dir / "stitched"
-        self.unw_dir = self.ifg_dir / "unwrapped"
+    # Track the directories that need to be created at start of workflow
+    @property
+    @computed_field
+    def log_dir(self) -> Path:
+        return self.work_dir / "logs"
 
-        # Expanded version used for internal processing
+    @property
+    @computed_field
+    def gslc_dir(self) -> Path:
+        return self.work_dir / "gslcs"
+
+    @property
+    @computed_field
+    def geom_dir(self) -> Path:
+        return self.work_dir / "geometry"
+
+    @property
+    @computed_field
+    def ifg_dir(self) -> Path:
+        return self.work_dir / "interferograms"
+
+    @property
+    @computed_field
+    def stitched_ifg_dir(self) -> Path:
+        return self.ifg_dir / "stitched"
+
+    @property
+    @computed_field
+    def unw_dir(self) -> Path:
+        return self.ifg_dir / "unwrapped"
+
+    # Expanded version used for internal processing
+    @property
+    @computed_field
+    def _dem_bbox(self) -> Tuple[float, float, float, float]:
         assert isinstance(self.bbox, tuple)
-        self._dem_bbox = (
+        return (
             self.bbox[0] - 0.25,
             self.bbox[1] - 0.25,
             self.bbox[2] + 0.25,
