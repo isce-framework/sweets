@@ -75,6 +75,20 @@ class Workflow(YamlModel):
             " by aria2)."
         ),
     )
+    dem_filename: Path = Field(
+        # requires that `work_dir` is specified earlier than `dem_filename`
+        default_factory=lambda data: data["work_dir"] / "dem.dat",
+        description=(
+            "Path to custom digital elevation model (DEM). If left out (default behaviour), sweets will download the copernicus DEM using the sardem package and will store it in `work_dir`. The DEM should be supplied as EPSG:4326."
+        ),
+    )
+    water_mask_filename: Optional[Path] = Field(
+        # requires that `work_dir` is specified earlier than `water_mask_filename`
+        default_factory=lambda data: data["work_dir"] / "watermask.flg",
+        description=(
+            "Path to custom water mask. If left out (default behaviour), sweets will download an SRTM-based watermask using the sardem package and will store it in `work_dir`. The DEM should be supplied as EPSG:4326."
+        ),
+    )
     interferogram_options: InterferogramOptions = Field(
         default_factory=InterferogramOptions
     )
@@ -223,8 +237,6 @@ class Workflow(YamlModel):
         self.ifg_dir = self.work_dir / "interferograms"
         self.stitched_ifg_dir = self.ifg_dir / "stitched"
         self.unw_dir = self.ifg_dir / "unwrapped"
-        self._dem_filename = self.work_dir / "dem.tif"
-        self._water_mask_filename = self.work_dir / "watermask.flg"
 
         # Expanded version used for internal processing
         assert isinstance(self.bbox, tuple)
@@ -261,7 +273,7 @@ class Workflow(YamlModel):
     # Download helpers to kick off for step 1:
     def _download_dem(self) -> Future:
         """Kick off download/creation the DEM."""
-        return self._client.submit(create_dem, self._dem_filename, self._dem_bbox)
+        return self._client.submit(create_dem, self.dem_filename, self._dem_bbox)
 
     def _download_burst_db(self) -> Future:
         """Kick off download of burst database to get the GSLC bbox/EPSG."""
@@ -270,7 +282,7 @@ class Workflow(YamlModel):
     def _download_water_mask(self) -> Future:
         """Kick off download of water mask."""
         return self._client.submit(
-            create_water_mask, self._water_mask_filename, self._dem_bbox
+            create_water_mask, self.water_mask_filename, self._dem_bbox
         )
 
     def _download_rslcs(self) -> list[Path]:
@@ -371,7 +383,7 @@ class Workflow(YamlModel):
         return stitch_geometry(
             geom_path_list=geom_path_list,
             geom_dir=self.geom_dir,
-            dem_filename=self._dem_filename,
+            dem_filename=self.dem_filename,
             looks=self.interferogram_options.looks,
             bbox=self.bbox,
             overwrite=self.overwrite,
@@ -467,12 +479,12 @@ class Workflow(YamlModel):
 
         self.unw_dir.mkdir(parents=True, exist_ok=True)
         # Warp the water mask to match the interferogram
-        self._warped_water_mask = self._water_mask_filename.parent / "warped_mask.tif"
+        self._warped_water_mask = self.work_dir / "warped_mask.tif"
         if self._warped_water_mask.exists():
             logger.info(f"Mask already exists at {self._warped_water_mask}")
         else:
             stitching.warp_to_match(
-                input_file=self._water_mask_filename,
+                input_file=self.water_mask_filename,
                 match_file=ifg_files[0],
                 output_file=self._warped_water_mask,
             )
@@ -536,7 +548,7 @@ class Workflow(YamlModel):
             burst_db_file = get_burst_db()
             download_orbits(self.asf_query.out_dir, self.orbit_dir)
             rslc_files = self._get_existing_rslcs()
-            self._geocode_slcs(rslc_files, self._dem_filename, burst_db_file)
+            self._geocode_slcs(rslc_files, self.dem_filename, burst_db_file)
 
             geom_path_list = self._get_burst_static_layers()
             logger.info(f"Found {len(geom_path_list)} burst static layers")
@@ -560,7 +572,7 @@ class Workflow(YamlModel):
         logger.info(f"Found {len(stitched_ifg_files)} stitched ifgs")
 
         # make sure we have the water mask
-        create_water_mask(self._water_mask_filename, self._dem_bbox)
+        create_water_mask(self.water_mask_filename, self._dem_bbox)
         unwrapped_files = self._unwrap_ifgs(stitched_ifg_files, cor_files)
 
         return unwrapped_files
