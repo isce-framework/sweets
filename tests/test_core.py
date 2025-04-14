@@ -104,7 +104,7 @@ class TestWorkflow:
             )
         )
         # assert defaults work
-        assert w.work_dir / "dem.dat" == w.dem_filename
+        assert w.work_dir / "dem.tif" == w.dem_filename
         assert w.work_dir / "watermask.flg" == w.water_mask_filename
 
         # assert computed fields work

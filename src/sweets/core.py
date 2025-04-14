@@ -152,12 +152,6 @@ class Workflow(YamlModel):
             elif not isinstance(values["asf_query"], dict):
                 # forward validation of unknown object to ASFQuery
                 ASFQuery.model_validate(values["asf_query"])
-            # Orbits dir and data dir can be outside the working dir if someone
-            # wants to point to existing data.
-            # So we only want to move them inside the working dir if they weren't
-            # explicitly set.
-            values["_orbit_dir_is_set"] = "orbit_dir" in values
-            values["_data_dir_is_set"] = "out_dir" in values["asf_query"]
 
             # also if they passed a wkt to the outer constructor, we need to
             # pass through to the ASF query
@@ -260,7 +254,6 @@ class Workflow(YamlModel):
         return self.ifg_dir / "unwrapped"
 
     # Expanded version used for internal processing
-    @computed_field  # type: ignore[prop-decorator]
     @property
     def _dem_bbox(self) -> Tuple[float, float, float, float]:
         assert isinstance(self.bbox, tuple)
