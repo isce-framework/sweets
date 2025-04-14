@@ -75,7 +75,7 @@ class Workflow(YamlModel):
     )
     dem_filename: Path = Field(
         # requires that `work_dir` is specified earlier than `dem_filename`
-        default_factory=lambda data: data["work_dir"] / "dem.dat",
+        default_factory=lambda data: data["work_dir"] / "dem.tif",
         description=(
             "Path to custom digital elevation model (DEM). If left out (default behaviour), sweets will download the copernicus DEM using the sardem package and will store it in `work_dir`. The DEM should be supplied as EPSG:4326."
         ),
@@ -154,12 +154,6 @@ class Workflow(YamlModel):
             elif not isinstance(values["asf_query"], dict):
                 # forward validation of unknown object to ASFQuery
                 ASFQuery.model_validate(values["asf_query"])
-            # Orbits dir and data dir can be outside the working dir if someone
-            # wants to point to existing data.
-            # So we only want to move them inside the working dir if they weren't
-            # explicitly set.
-            values["_orbit_dir_is_set"] = "orbit_dir" in values
-            values["_data_dir_is_set"] = "out_dir" in values["asf_query"]
 
             # also if they passed a wkt to the outer constructor, we need to
             # pass through to the ASF query
@@ -267,7 +261,6 @@ class Workflow(YamlModel):
         return self.work_dir / "scratch"
 
     # Expanded version used for internal processing
-    @computed_field  # type: ignore[prop-decorator]
     @property
     def _dem_bbox(self) -> Tuple[float, float, float, float]:
         assert isinstance(self.bbox, tuple)
