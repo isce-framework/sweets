@@ -11,8 +11,6 @@ from dolphin import stitching, unwrap
 from dolphin.interferogram import Network
 from dolphin.utils import _format_date_pair, set_num_threads
 from dolphin.workflows.config import (
-    SnaphuOptions,
-    UnwrapMethod,
     UnwrapOptions,
     YamlModel,
 )
@@ -91,6 +89,10 @@ class Workflow(YamlModel):
     )
     interferogram_options: InterferogramOptions = Field(
         default_factory=InterferogramOptions
+    )
+    unwrap_options: UnwrapOptions = Field(
+        default_factory=UnwrapOptions,
+        description="Options for unwrapping after wrapped phase estimation.",
     )
     do_unwrap: bool = Field(
         True,
@@ -258,6 +260,11 @@ class Workflow(YamlModel):
     @property
     def unw_dir(self) -> Path:
         return self.ifg_dir / "unwrapped"
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def scratch_dir(self) -> Path:
+        return self.work_dir / "scratch"
 
     # Expanded version used for internal processing
     @computed_field  # type: ignore[prop-decorator]
@@ -502,6 +509,7 @@ class Workflow(YamlModel):
             return unwrapped_files
 
         self.unw_dir.mkdir(parents=True, exist_ok=True)
+        self.scratch_dir.mkdir(parents=True, exist_ok=True)
         # Warp the water mask to match the interferogram
         self._warped_water_mask = self.work_dir / "warped_mask.tif"
         if self._warped_water_mask.exists():
@@ -513,35 +521,20 @@ class Workflow(YamlModel):
                 output_file=self._warped_water_mask,
             )
 
-        ifg_to_future = {}
         # dolphin allows for parallel jobs, use PorcessPool here?
-        with ProcessPoolExecutor(max_workers=self.n_workers) as _client:
-            for ifg_file, cor_file in zip(ifg_files, cor_files):
-                outfile = self.unw_dir / ifg_file.name.replace(".int", UNW_SUFFIX)
-                unwrapped_files.append(outfile)
-                if outfile.exists():
-                    logger.info(f"Skipping {outfile}, already exists.")
-                else:
-                    ifg_to_future[ifg_file] = _client.submit(
-                        unwrap.unwrap,
-                        ifg_filename=ifg_file,
-                        corr_filename=cor_file,
-                        unw_filename=outfile,
-                        nlooks=int(np.prod(self.interferogram_options.looks)),
-                        mask_filename=self._warped_water_mask,
-                        unwrap_options=UnwrapOptions(
-                            unwrap_method=UnwrapMethod.SNAPHU,
-                            snaphu_options=SnaphuOptions(init_method="mcf"),
-                        ),
-                        # do_tile=False,  # Probably make this an option too
-                    )
-
-            # Add in the rest of the ones we ran
-            for ifg_file, f in ifg_to_future.items():
-                logger.info(f"Unwrapping {ifg_file}")
-                f.result()
+        unw_paths, _ = unwrap.run(
+            ifg_files,
+            cor_files,
+            self.unw_dir,
+            unwrap_options=self.unwrap_options,
+            nlooks=int(np.prod(self.interferogram_options.looks)),
+            mask_filename=self._warped_water_mask,
+            overwrite=self.overwrite,
+            scratchdir=self.scratch_dir,
+            delete_intermediate=False,
+        )
         # TODO: Maybe check the return codes here? or log the snaphu output?
-        return unwrapped_files
+        return unw_paths
 
     @log_runtime
     def run(self, starting_step: int = 1):
