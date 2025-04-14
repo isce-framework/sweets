@@ -77,7 +77,7 @@ class Workflow(YamlModel):
     )
     dem_filename: Path = Field(
         # requires that `work_dir` is specified earlier than `dem_filename`
-        default_factory=lambda data: data["work_dir"] / "dem.dat",
+        default_factory=lambda data: data["work_dir"] / "dem.tif",
         description=(
             "Path to custom digital elevation model (DEM). If left out (default behaviour), sweets will download the copernicus DEM using the sardem package and will store it in `work_dir`. The DEM should be supplied as EPSG:4326."
         ),
