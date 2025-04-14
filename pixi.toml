@@ -25,7 +25,13 @@ rioxarray = "*"
 sweets = { path = ".", editable = true}
 
 [feature.dev]
-dependencies = { pytest = ">=8.3.5,<9", pre_commit = "*"}
+dependencies = { pytest = ">=8.3.5,<9", pre_commit = "*", mypy = "*" }
+
+[feature.plotting]
+dependencies = { cartopy = "*" }
 
 [environments.default]
-features = ["dev"]
+features = ["dev", "plotting"]
+
+[environments.minimal]
+features = []

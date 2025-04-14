@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import List
 
 import pytest
@@ -32,9 +33,9 @@ class TestWorkflow:
         outfile = tmp_path / "config.yaml"
         w.to_yaml(outfile, with_comments=True)
         w2 = Workflow.from_yaml(outfile)
-        assert w == w2
+        assert w.model_dump() == w2.model_dump()  # computed fields affect equality
 
-    def test_workflow_construct_model(self, tmp_path, bbox):
+    def test_workflow_construct_model(self, bbox):
         start, end, track = "2022-12-15", "2022-12-29", 78
         w = Workflow(
             asf_query=ASFQuery(
@@ -81,6 +82,33 @@ class TestWorkflow:
         )
         assert _iou(wkt.loads(w.wkt), loaded_wkt) == 1.0
         assert w.bbox == expected_bbox
+
+    def test_workflow_default_factory_order(self, bbox):
+        start, end, track = "2022-12-15", "2022-12-29", 78
+        dem_path = Path() / "dem"
+        mask_path = Path() / "mask"
+        w = Workflow(
+            water_mask_filename=mask_path,
+            dem_filename=dem_path,
+            asf_query=ASFQuery(
+                start=start, end=end, relativeOrbit=track, out_dir="data", bbox=bbox
+            ),
+        )
+        # assert can set
+        assert w.water_mask_filename == mask_path
+        assert w.dem_filename == dem_path
+
+        w = Workflow(
+            asf_query=ASFQuery(
+                start=start, end=end, relativeOrbit=track, out_dir="data", bbox=bbox
+            )
+        )
+        # assert defaults work
+        assert w.work_dir / "dem.tif" == w.dem_filename
+        assert w.work_dir / "watermask.flg" == w.water_mask_filename
+
+        # assert computed fields work
+        assert w.log_dir == w.work_dir / "logs"
 
 
 def _iou(poly1, poly2):
