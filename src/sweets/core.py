@@ -198,6 +198,11 @@ class Workflow(YamlModel):
         else:
             # otherwise, make WKT just a 5 point polygon
             self.wkt = wkt.dumps(geometry.box(*self.bbox))
+        # Check that bottom is lower than top, left is left of right
+        if self.bbox[1] > self.bbox[3]:
+            raise ValueError(f"Latitude must be lower than top, got {self.bbox}")
+        if self.bbox[0] > self.bbox[2]:
+            raise ValueError(f"Longitude max must be greater than min, got {self.bbox}")
         return self
 
     def save(self, config_file: Filename = "sweets_config.yaml"):
