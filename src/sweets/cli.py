@@ -82,7 +82,7 @@ def _get_cli_args() -> dict:
         ),
     )
     aoi.add_argument(
-        "--data-dir",
+        "--out-dir",
         help=(
             "Directory to store data in (or directory containing existing downloads)."
             " If None, will store in `data/` "
