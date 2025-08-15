@@ -66,11 +66,11 @@ def plot_ifg(
         Axes of the plot containing the interferogram.
     """
     if img is None:
-        img = io.load_gdal(filename, subsample_factor=subsample_factor)
+        img = io.load_gdal(filename, subsample_factor=subsample_factor, band=1)
     else:
         # check for accidentally passing a filename as positional
         if isinstance(img, (Path, str)):
-            img = io.load_gdal(img, subsample_factor=subsample_factor)
+            img = io.load_gdal(img, subsample_factor=subsample_factor, band=1)
     phase = np.angle(img) if np.iscomplexobj(img) else img
     if plot_cor:
         cor = np.abs(img)
@@ -233,12 +233,12 @@ def browse_ifgs(
 
     # imgs = np.stack([io.load_gdal(f) for f in file_list])
     img = io.load_gdal(
-        file_list[0], subsample_factor=subsample_factor, overview=overview
+        file_list[0], subsample_factor=subsample_factor, overview=overview, band=1
     )
     phase = np.angle(img)
     if cor_list is not None:
         cor = io.load_gdal(
-            cor_list[0], subsample_factor=subsample_factor, overview=overview
+            cor_list[0], subsample_factor=subsample_factor, overview=overview, band=1
         )
     else:
         cor = np.abs(img)
@@ -267,21 +267,23 @@ def browse_ifgs(
 
     @ipywidgets.interact(idx=(0, len(file_list) - 1))
     def browse_plot(idx=0):
-        ifg = io.load_gdal(file_list[idx], subsample_factor=subsample_factor)
+        ifg = io.load_gdal(file_list[idx], subsample_factor=subsample_factor, band=1)
         phase = np.angle(ifg)
         if cor_list is not None:
-            cor = io.load_gdal(cor_list[idx], subsample_factor=subsample_factor)
+            cor = io.load_gdal(cor_list[idx], subsample_factor=subsample_factor, band=1)
         else:
             cor = np.abs(ifg)
         axim_ifg.set_data(phase)
         axim_cor.set_data(cor)
         if unw_list[idx].exists():
             unw = apply_ref(
-                io.load_gdal(unw_list[idx], subsample_factor=subsample_factor)
+                io.load_gdal(unw_list[idx], subsample_factor=subsample_factor, band=1)
             )
             axim_unw.set_data(unw)
         if conncomp_list[idx].exists():
-            ccl = io.load_gdal(conncomp_list[idx], subsample_factor=subsample_factor)
+            ccl = io.load_gdal(
+                conncomp_list[idx], subsample_factor=subsample_factor, band=1
+            )
             axim_ccl.set_data(ccl)
         fig.suptitle(titles[idx])
 
