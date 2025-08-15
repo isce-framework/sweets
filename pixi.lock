@@ -13674,8 +13674,8 @@ packages:
   timestamp: 1742907655838
 - pypi: ./
   name: sweets
-  version: 0.2.2.post1.dev167+g109e705.d20250815
-  sha256: acec5a017e32819a620687b5ea515e3be67eef6eaf79126ea10cfb03291115b3
+  version: 0.2.2.post1.dev169+g9903efb.d20250815
+  sha256: b81f0ab1525c3e7b9956186577ef064282cfc03848c376de0c203a01b8ce35ca
   requires_dist:
   - dask
   - dolphin
