@@ -21,20 +21,30 @@ classifiers = [
 # https://setuptools.pypa.io/en/latest/userguide/pyproject_config.html#dynamic-metadata
 dynamic = ["version"]
 
+
 dependencies = [
-  "colorcet",
-  "dask>=2022.6.0",
-  "h5py>=3.6",
-  "numpy>=1.20",
-  "opera-utils>=0.24.0",
+  "dask",
+  "dolphin",
+  # Not pypi-installable
+  # "compass",
+  # "gdal",
+  # "libgdal-netcdf",
+  # "isce3",
+  "h5py",
+  "numpy",
   "pandas",
-  "pydantic>=2",
-  "pyproj>=3.2",
-  "requests>=2.10",
-  "rich>=12.0",
-  "sardem>=0.11.1",
-  "sentineleof>=0.11.0",
-  "shapely>=2",
+  "pyproj",
+  "requests",
+  "rich",
+  "shapely",
+  "geopandas",
+  "rioxarray",
+  "opera-utils",
+  "pydantic",
+  "python-dateutil",
+  "rasterio",
+  "sardem",
+  "sentineleof",
 ]
 
 [project.urls]
@@ -56,9 +66,14 @@ sweets = { path = ".", editable = true }
 [tool.pixi.dependencies]
 python = ">=3.8"
 pip = ">=21.3"
+wget = "*"
 git = "*"
-colorcet = "*"
 dask = ">=2022.6.0"
+dolphin = "*"
+gdal = "*"
+compass = ">=0.4.1"
+libgdal-netcdf = "*"
+isce3 = ">=0.24"
 h5py = ">=3.6"
 numpy = ">=1.20"
 pandas = "*"
@@ -68,10 +83,16 @@ rich = ">=12.0"
 shapely = ">=1.8"
 geopandas = "*"
 rioxarray = "*"
+opera-utils = ">=0.24"
+pydantic = ">=2.1"
+python-dateutil = "*"
+rasterio = "*"
+sardem = "*"
+sentineleof = "*"
 
 [tool.pixi.tasks]
 test = "pytest"
-install = { depends-on = "pre-commit_install"}
+install = { depends-on = "pre-commit_install" }
 pre-commit_install = "pre-commit install"
 
 [tool.pixi.feature.test.dependencies]
@@ -85,6 +106,7 @@ mypy = "*"
 [tool.pixi.feature.plotting.dependencies]
 cartopy = "*"
 matplotlib = "*"
+colorcet = "*"
 
 [tool.pixi.environments]
 default = ["test", "plotting"]
