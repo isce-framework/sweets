@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "sweets"
 description = "Workflows for generating surface displacement maps using InSAR"
 readme = { file = "README.md", content-type = "text/markdown" }
-requires-python = ">=3.8"
+requires-python = ">=3.11"
 
 classifiers = [
   "Development Status :: 2 - Pre-Alpha",
@@ -19,8 +19,23 @@ classifiers = [
 # The version will be written into a version.py upon install, auto-generated
 # see section: setuptools_scm
 # https://setuptools.pypa.io/en/latest/userguide/pyproject_config.html#dynamic-metadata
-# dependencies will be read from text files
-dynamic = ["version", "dependencies", "optional-dependencies"]
+dynamic = ["version"]
+
+dependencies = [
+  "colorcet",
+  "dask>=2022.6.0",
+  "h5py>=3.6",
+  "numpy>=1.20",
+  "opera-utils>=0.24.0",
+  "pandas",
+  "pydantic>=2",
+  "pyproj>=3.2",
+  "requests>=2.10",
+  "rich>=12.0",
+  "sardem>=0.11.1",
+  "sentineleof>=0.11.0",
+  "shapely>=2",
+]
 
 [project.urls]
 Homepage = "https://github.com/scottstanie/sweets"
@@ -30,14 +45,52 @@ Homepage = "https://github.com/scottstanie/sweets"
 [project.scripts]
 sweets = "sweets.cli:main"
 
-[tool.setuptools.dynamic]
-dependencies = { file = ["requirements.txt"] }
 
-# extra requirements: `pip install sweets[docs]` or `pip install .[docs]`
-[tool.setuptools.dynamic.optional-dependencies.docs]
-file = ["docs/requirements.txt"]
-[tool.setuptools.dynamic.optional-dependencies.test]
-file = ["tests/requirements.txt"]
+[tool.pixi.project]
+channels = ["conda-forge"]
+platforms = ["osx-arm64", "linux-64"]
+
+[tool.pixi.pypi-dependencies]
+sweets = { path = ".", editable = true }
+
+[tool.pixi.dependencies]
+python = ">=3.8"
+pip = ">=21.3"
+git = "*"
+colorcet = "*"
+dask = ">=2022.6.0"
+h5py = ">=3.6"
+numpy = ">=1.20"
+pandas = "*"
+pyproj = ">=3.2"
+requests = ">=2.10"
+rich = ">=12.0"
+shapely = ">=1.8"
+geopandas = "*"
+rioxarray = "*"
+
+[tool.pixi.tasks]
+test = "pytest"
+install = { depends-on = "pre-commit_install"}
+pre-commit_install = "pre-commit install"
+
+[tool.pixi.feature.test.dependencies]
+pytest = ">=8.3.5,<9"
+pytest-cov = "*"
+pytest-randomly = "*"
+pytest-xdist = "*"
+pre-commit = "*"
+mypy = "*"
+
+[tool.pixi.feature.plotting.dependencies]
+cartopy = "*"
+matplotlib = "*"
+
+[tool.pixi.environments]
+default = ["test", "plotting"]
+test = ["test"]
+plotting = ["plotting"]
+minimal = []
 
 [tool.setuptools_scm]
 # https://github.com/pypa/setuptools_scm#configuration-parameters
@@ -47,7 +100,7 @@ version_scheme = "no-guess-dev" # Will not guess the next version
 
 
 [tool.black]
-target-version = ["py38", "py39", "py310", "py310"]
+target-version = ["py311", "py312", "py313"]
 preview = true
 
 [tool.isort]
@@ -55,7 +108,7 @@ profile = "black"
 known_first_party = ["sweets"]
 
 [tool.mypy]
-python_version = "3.8"
+python_version = "3.12"
 ignore_missing_imports = true
 plugins = ["pydantic.mypy"]
 
