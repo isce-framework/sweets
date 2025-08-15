@@ -41,7 +41,7 @@ def setup_nasa_netrc(netrc_file: Filename = "~/.netrc"):
 
     username, password = _get_username_pass()
     # Add NASA account to netrc file
-    n.hosts[NASA_HOST] = (username, None, password)
+    n.hosts[NASA_HOST] = (username, "", password)
     console.print(f"Saving credentials to {netrc_file} (machine={NASA_HOST}).")
     with open(netrc_file, "w") as f:
         f.write(str(n))
