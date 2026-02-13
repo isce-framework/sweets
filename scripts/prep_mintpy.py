@@ -21,7 +21,7 @@ from dolphin import io
 from dolphin.utils import full_suffix
 from mintpy.utils import arg_utils, ptime, readfile, writefile
 from mintpy.utils.utils0 import calc_azimuth_from_east_north_obs
-from opera_utils import OPERA_DATASET_ROOT, get_dates
+from opera_utils import OPERA_DATASET_NAME, get_dates
 
 ####################################################################################
 EXAMPLE = """example:
@@ -161,7 +161,7 @@ def prepare_metadata(meta_file, int_file, nlks_x=1, nlks_y=1):
         if burst_ds not in meta_compass:
             burst_ds = f"{processing_ds}/input_burst_metadata"
     else:
-        root = OPERA_DATASET_ROOT
+        root = OPERA_DATASET_NAME
         processing_ds = f"{root}/metadata/processing_information"
         burst_ds = f"{processing_ds}/input_burst_metadata"
 
