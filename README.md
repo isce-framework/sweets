@@ -33,6 +33,37 @@ conda activate sweets-env
 python -m pip install .
 ```
 
+## Setup
+
+You need a `~/.netrc` file with NASA Earthdata credentials to download data from ASF:
+
+```
+machine urs.earthdata.nasa.gov
+    login <username>
+    password <password>
+```
+
+Register at https://urs.earthdata.nasa.gov/users/new if you don't have an account.
+
+### Optional: CDSE credentials
+
+To download Sentinel-1 SLC granules from the [Copernicus Data Space Ecosystem (CDSE)](https://dataspace.copernicus.eu/) instead of ASF, you need CDSE credentials. These can be provided in one of two ways:
+
+- Add an entry to your `~/.netrc` file:
+  ```
+  machine dataspace.copernicus.eu
+      login <cdse-username>
+      password <cdse-password>
+  ```
+- Or set environment variables:
+  ```bash
+  export CDSE_USERNAME=<cdse-username>
+  export CDSE_PASSWORD=<cdse-password>
+  ```
+
+A free CDSE account can be registered at [dataspace.copernicus.eu](https://dataspace.copernicus.eu/).
+
+
 ## Usage
 
 From the command line, installing will create a `sweets` executable. You can run `sweets --help` to see the available options.
@@ -56,6 +87,19 @@ Then you can kick off the workflow using
 sweets run sweets_config.yaml
 ```
 
+### Using CDSE for Sentinel-1 Download
+
+By default, Sentinel-1 SLC granules are downloaded from the [Alaska Satellite Facility (ASF)](https://asf.alaska.edu/). As an alternative, particularly suited for European users or those operating within the European cloud ecosystem, granules can be downloaded from [CDSE](https://dataspace.copernicus.eu/) by passing `--download-source CDSE`:
+
+```bash
+sweets config --bbox -102.2 32.15 -102.1 32.22 --start 2022-12-15 --end 2022-12-29 --track 78 --download-source CDSE
+```
+
+Or in a YAML config file, set:
+```yaml
+download_source: CDSE
+```
+
 ### Configuration from Python
 
 Alternatively, you can configure everything in python:
@@ -65,6 +109,16 @@ bbox = (-102.3407, 31.9909, -101.9407, 32.3909)
 start = "2020-01-01"  # can be strings or datetime objects
 track = 78
 w = Workflow(bbox=bbox, asf_query=dict(start=start, end=end, relativeOrbit=track))
+w.run()
+```
+
+To use CDSE for downloads:
+```python
+w = Workflow(
+    bbox=bbox,
+    download_source="CDSE",
+    asf_query=dict(start=start, end=end, relativeOrbit=track),
+)
 w.run()
 ```
 

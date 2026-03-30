@@ -1,15 +1,30 @@
 #!/usr/bin/env python
-"""Script for downloading through https://asf.alaska.edu/api/.
+"""Script for downloading Sentinel-1 SLC data from ASF or CDSE.
+
+Supports two download sources:
+- ASF (Alaska Satellite Facility): default, uses wget.
+  Requires ~/.netrc credentials for urs.earthdata.nasa.gov.
+- CDSE (Copernicus Data Space Ecosystem): alternative endpoint.
+  Requires CDSE credentials via env vars or ~/.netrc for dataspace.copernicus.eu.
+
+In both cases, ASF is used for the metadata/spatial search (no credentials needed).
+Only the actual file download requires source-specific credentials.
 
 Base taken from
 https://github.com/scottyhq/isce_notes/blob/master/BatchProcessing.md
 https://github.com/scottstanie/apertools/blob/master/apertools/asfdownload.py
 
-
-You need a .netrc to download:
+ASF download requires a .netrc:
 
 # cat ~/.netrc
 machine urs.earthdata.nasa.gov
+    login CHANGE
+    password CHANGE
+
+CDSE download requires a .netrc (or CDSE_USERNAME/CDSE_PASSWORD env vars):
+
+# cat ~/.netrc
+machine dataspace.copernicus.eu
     login CHANGE
     password CHANGE
 
@@ -36,6 +51,7 @@ from dolphin.workflows.config import YamlModel
 from pydantic import ConfigDict, Field, PrivateAttr, field_validator, model_validator
 from shapely.geometry import box
 
+from ._cdse import download_slcs_from_cdse, ensure_cdse_credentials
 from ._log import get_log, log_runtime
 from ._types import Filename
 from ._unzip import unzip_all
@@ -95,6 +111,15 @@ class ASFQuery(YamlModel):
     unzip: bool = Field(
         False,
         description="Unzip downloaded files into .SAFE directories",
+    )
+    download_source: Literal["ASF", "CDSE"] = Field(
+        "ASF",
+        description=(
+            "Source for downloading Sentinel-1 SLC granules. "
+            "'ASF' uses Alaska Satellite Facility (requires Earthdata credentials). "
+            "'CDSE' uses Copernicus Data Space Ecosystem (requires CDSE credentials "
+            "via CDSE_USERNAME/CDSE_PASSWORD env vars or ~/.netrc)."
+        ),
     )
     _url: str = PrivateAttr()
     model_config = ConfigDict(extra="forbid")
@@ -210,6 +235,7 @@ class ASFQuery(YamlModel):
     @log_runtime
     def download(self, log_dir: Filename = Path(".")) -> list[Path]:
         # Start by saving data available as geojson
+        # Always query ASF for metadata (even when downloading from CDSE)
         results = self.query_results()
         urls = self._get_urls(results)
 
@@ -221,8 +247,22 @@ class ASFQuery(YamlModel):
         self.out_dir.mkdir(parents=True, exist_ok=True)
         file_names = [self.out_dir / f for f in self._file_names(results)]
 
-        # TODO: use aria if available? or just make wget parallel...
-        self._download_with_wget(urls, log_dir=log_dir)
+        if self.download_source == "CDSE":
+            logger.info("Downloading SLCs from CDSE")
+            ensure_cdse_credentials()
+            # Extract granule names from the ASF query results
+            granule_names = [
+                r["properties"]["fileName"].replace(".zip", "").replace(".SAFE", "")
+                for r in results["features"]
+            ]
+            downloaded = download_slcs_from_cdse(
+                slc_ids=granule_names,
+                output_dir=str(self.out_dir),
+            )
+            file_names = [self.out_dir / f for f in downloaded]
+        else:
+            # Default: download from ASF
+            self._download_with_wget(urls, log_dir=log_dir)
 
         if self.unzip:
             # Change to .SAFE extension

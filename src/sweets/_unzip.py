@@ -38,10 +38,10 @@ def unzip_all(
     n_workers: int = 4,
 ) -> List[Path]:
     """Find all .zips and unzip them, skipping overwrites."""
-    zip_files = list(Path(path).glob("S1[AB]_*IW*.zip"))
+    zip_files = list(Path(path).glob("S1[ABC]_*IW*.zip"))
     logger.info(f"Found {len(zip_files)} zip files to unzip")
 
-    existing_safes = list(Path(path).glob("S1[AB]_*IW*.SAFE"))
+    existing_safes = list(Path(path).glob("S1[ABC]_*IW*.SAFE"))
     logger.info(f"Found {len(existing_safes)} SAFE files already unzipped")
 
     # Skip if already unzipped

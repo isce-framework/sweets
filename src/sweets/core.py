@@ -22,7 +22,7 @@ from ._burst_db import get_burst_db
 from ._geocode_slcs import create_config_files, run_geocode, run_static_layers
 from ._geometry import stitch_geometry
 from ._log import get_log, log_runtime
-from ._netrc import setup_nasa_netrc
+from ._netrc import setup_cdse_netrc, setup_nasa_netrc
 from ._orbit import download_orbits
 from ._types import Filename
 from .dem import create_dem, create_water_mask
@@ -65,12 +65,20 @@ class Workflow(YamlModel):
     )
 
     asf_query: ASFQuery
+    download_source: Literal["ASF", "CDSE"] = Field(
+        "ASF",
+        description=(
+            "Source for downloading Sentinel-1 SLC granules. "
+            "'ASF' uses Alaska Satellite Facility (requires Earthdata credentials). "
+            "'CDSE' uses Copernicus Data Space Ecosystem (requires CDSE credentials "
+            "via CDSE_USERNAME/CDSE_PASSWORD env vars or ~/.netrc)."
+        ),
+    )
     skip_download_if_exists: bool = Field(
         True,
         description=(
-            "Don't re-query ASF if there's any existing data in the download directory."
-            " Otherwise, will re-query and only skip files that match checksums (done"
-            " by aria2)."
+            "Don't re-query ASF/CDSE if there's any existing data in the download"
+            " directory. Otherwise, will re-query and re-download missing files."
         ),
     )
     dem_filename: Path = Field(
@@ -168,6 +176,10 @@ class Workflow(YamlModel):
             values["bbox"] = values["asf_query"]["bbox"]
             if not values.get("bbox") and not values.get("wkt"):
                 raise ValueError("Must specify either `bbox` or `wkt`")
+
+            # Sync download_source to asf_query
+            if "download_source" in values:
+                values["asf_query"]["download_source"] = values["download_source"]
 
         return values
 
@@ -315,7 +327,7 @@ class Workflow(YamlModel):
         )
 
     def _download_rslcs(self) -> list[Path]:
-        """Download Sentinel zip files from ASF."""
+        """Download Sentinel zip files from ASF or CDSE."""
         self.log_dir.mkdir(parents=True, exist_ok=True)
         # The final name will depend on if we're unzipping or not
         existing_files = self._get_existing_rslcs()
@@ -538,6 +550,8 @@ class Workflow(YamlModel):
     def run(self, starting_step: int = 1):
         """Run the workflow."""
         setup_nasa_netrc()
+        if self.download_source == "CDSE":
+            setup_cdse_netrc()
         set_num_threads(self.threads_per_worker)
 
         # First step: data download

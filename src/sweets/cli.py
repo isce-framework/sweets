@@ -88,6 +88,18 @@ def _get_cli_args() -> dict:
             " If None, will store in `data/` "
         ),
     )
+    base.add_argument(
+        "--download-source",
+        type=str,
+        choices=["ASF", "CDSE"],
+        default="ASF",
+        help=(
+            "Source for downloading Sentinel-1 SLC granules. "
+            "'ASF' uses Alaska Satellite Facility (default). "
+            "'CDSE' uses Copernicus Data Space Ecosystem "
+            "(requires CDSE_USERNAME/CDSE_PASSWORD env vars or ~/.netrc)."
+        ),
+    )
 
     interferogram_options = config_parser.add_argument_group("interferogram_options")
     interferogram_options.add_argument(
@@ -164,7 +176,7 @@ def _get_cli_args() -> dict:
         default=1,
         help=(
             "If > 1, will skip earlier steps of the workflow. Step: "
-            "1. Download RSLC data from ASF. 2. Create GSLCs. "
+            "1. Download RSLC data from ASF/CDSE. 2. Create GSLCs. "
             "3. Create burst interfereograms. "
             "4. Stitch burst interferograms into one per date. "
             "5. Unwrap. "
