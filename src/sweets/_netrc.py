@@ -109,9 +109,7 @@ def setup_cdse_netrc(netrc_file: Filename = "~/.netrc"):
     os.chmod(netrc_file, 0o600)
 
 
-def _ensure_netrc_entry(
-    netrc_file: Path, host: str, username: str, password: str
-):
+def _ensure_netrc_entry(netrc_file: Path, host: str, username: str, password: str):
     """Append a netrc entry for `host` if it doesn't already exist."""
     try:
         if netrc_file.exists():
