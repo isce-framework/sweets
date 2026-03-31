@@ -1,5 +1,10 @@
 # Unreleased
 
+**Added**
+- CDSE (Copernicus Data Space Ecosystem) as an alternative download source for Sentinel-1 SLC granules via `--download-source CDSE` CLI option or `download_source: CDSE` in config.
+- New `_cdse.py` module with CDSE credential handling, OAuth2 token acquisition, OData catalog search, and download with retry logic (supports both compressed and natively compressed CDSE archives).
+- Interactive CDSE credential setup in `_netrc.py` (via environment variables, `~/.netrc`, or interactive prompt).
+- Sentinel-1C support in unzip glob patterns.
 
 # [0.2.0](https://github.com/opera-adt/dolphin/compare/v0.2.0...v0.3.0) - 2023-08-23
 

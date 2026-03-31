@@ -1,15 +1,30 @@
 #!/usr/bin/env python
-"""Script for downloading through https://asf.alaska.edu/api/.
+"""Script for downloading Sentinel-1 SLC data from ASF or CDSE.
+
+Supports two download sources:
+- ASF (Alaska Satellite Facility): default, uses wget.
+  Requires ~/.netrc credentials for urs.earthdata.nasa.gov.
+- CDSE (Copernicus Data Space Ecosystem): alternative endpoint.
+  Requires CDSE credentials via env vars or ~/.netrc for dataspace.copernicus.eu.
+
+In both cases, ASF is used for the metadata/spatial search (no credentials needed).
+Only the actual file download requires source-specific credentials.
 
 Base taken from
 https://github.com/scottyhq/isce_notes/blob/master/BatchProcessing.md
 https://github.com/scottstanie/apertools/blob/master/apertools/asfdownload.py
 
-
-You need a .netrc to download:
+ASF download requires a .netrc:
 
 # cat ~/.netrc
 machine urs.earthdata.nasa.gov
+    login CHANGE
+    password CHANGE
+
+CDSE download requires a .netrc (or CDSE_USERNAME/CDSE_PASSWORD env vars):
+
+# cat ~/.netrc
+machine dataspace.copernicus.eu
     login CHANGE
     password CHANGE
 
@@ -36,6 +51,7 @@ from dolphin.workflows.config import YamlModel
 from pydantic import ConfigDict, Field, PrivateAttr, field_validator, model_validator
 from shapely.geometry import box
 
+from ._cdse import download_slcs_from_cdse, ensure_cdse_credentials
 from ._log import get_log, log_runtime
 from ._types import Filename
 from ._unzip import unzip_all
@@ -95,6 +111,15 @@ class ASFQuery(YamlModel):
     unzip: bool = Field(
         False,
         description="Unzip downloaded files into .SAFE directories",
+    )
+    download_source: Literal["ASF", "CDSE"] = Field(
+        "ASF",
+        description=(
+            "Source for downloading Sentinel-1 SLC granules. "
+            "'ASF' uses Alaska Satellite Facility (requires Earthdata credentials). "
+            "'CDSE' uses Copernicus Data Space Ecosystem (requires CDSE credentials "
+            "via CDSE_USERNAME/CDSE_PASSWORD env vars or ~/.netrc)."
+        ),
     )
     _url: str = PrivateAttr()
     model_config = ConfigDict(extra="forbid")
@@ -208,8 +233,13 @@ class ASFQuery(YamlModel):
             list(executor.map(download_url, enumerate(urls)))
 
     @log_runtime
-    def download(self, log_dir: Filename = Path(".")) -> list[Path]:
+    def download(
+        self,
+        log_dir: Filename = Path("."),
+        skip_if_exists: bool = True,
+    ) -> list[Path]:
         # Start by saving data available as geojson
+        # Always query ASF for metadata (even when downloading from CDSE)
         results = self.query_results()
         urls = self._get_urls(results)
 
@@ -221,8 +251,43 @@ class ASFQuery(YamlModel):
         self.out_dir.mkdir(parents=True, exist_ok=True)
         file_names = [self.out_dir / f for f in self._file_names(results)]
 
-        # TODO: use aria if available? or just make wget parallel...
-        self._download_with_wget(urls, log_dir=log_dir)
+        # Always check which files are already on disk and skip them.
+        # Even with skip_if_exists=False we avoid re-downloading existing files
+        # (wget -nc/-c would also skip them, but this saves the network overhead).
+        existing_stems = {p.stem for p in self.out_dir.iterdir() if p.is_file()}
+        missing_indices = [
+            i for i, f in enumerate(file_names) if f.stem not in existing_stems
+        ]
+
+        n_total = len(file_names)
+        n_existing = n_total - len(missing_indices)
+        logger.info(
+            f"Found {n_existing}/{n_total} files already in {self.out_dir}."
+            f" Downloading {len(missing_indices)} missing files."
+        )
+
+        if missing_indices:
+            if self.download_source == "CDSE":
+                logger.info("Downloading SLCs from CDSE")
+                ensure_cdse_credentials()
+                # Extract granule names for missing files only
+                granule_names = [
+                    results["features"][i]["properties"]["fileName"]
+                    .replace(".zip", "")
+                    .replace(".SAFE", "")
+                    for i in missing_indices
+                ]
+                downloaded = download_slcs_from_cdse(
+                    slc_ids=granule_names,
+                    output_dir=str(self.out_dir),
+                )
+                # Update file_names for newly downloaded
+                for idx, fname in zip(missing_indices, downloaded):
+                    file_names[idx] = self.out_dir / fname
+            else:
+                # Default: download from ASF (only missing URLs)
+                missing_urls = [urls[i] for i in missing_indices]
+                self._download_with_wget(missing_urls, log_dir=log_dir)
 
         if self.unzip:
             # Change to .SAFE extension
