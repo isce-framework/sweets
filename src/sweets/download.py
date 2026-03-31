@@ -254,13 +254,9 @@ class ASFQuery(YamlModel):
         # Always check which files are already on disk and skip them.
         # Even with skip_if_exists=False we avoid re-downloading existing files
         # (wget -nc/-c would also skip them, but this saves the network overhead).
-        existing_stems = {
-            p.stem for p in self.out_dir.iterdir() if p.is_file()
-        }
+        existing_stems = {p.stem for p in self.out_dir.iterdir() if p.is_file()}
         missing_indices = [
-            i
-            for i, f in enumerate(file_names)
-            if f.stem not in existing_stems
+            i for i, f in enumerate(file_names) if f.stem not in existing_stems
         ]
 
         n_total = len(file_names)
