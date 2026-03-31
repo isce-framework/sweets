@@ -77,8 +77,9 @@ class Workflow(YamlModel):
     skip_download_if_exists: bool = Field(
         True,
         description=(
-            "Don't re-query ASF/CDSE if there's any existing data in the download"
-            " directory. Otherwise, will re-query and re-download missing files."
+            "Skip downloading files that already exist in the download directory."
+            " ASF/CDSE is always queried first so that only truly missing files"
+            " are fetched."
         ),
     )
     dem_filename: Path = Field(
@@ -329,23 +330,10 @@ class Workflow(YamlModel):
     def _download_rslcs(self) -> list[Path]:
         """Download Sentinel zip files from ASF or CDSE."""
         self.log_dir.mkdir(parents=True, exist_ok=True)
-        # The final name will depend on if we're unzipping or not
-        existing_files = self._get_existing_rslcs()
-
-        if existing_files and self.skip_download_if_exists:
-            logger.info(
-                f"Found {len(existing_files)} existing files in"
-                f" {self.asf_query.out_dir}. Skipping download."
-            )
-            return existing_files
-
-        # If we didn't have any, we need to download them
-        # TODO: how should we handle partial/failed downloads... do we really
-        # want to re-search for them each time?
-        # Maybe there can be a "force" flag to re-download everything?
-        # or perhaps an API search, then if the number matches, we can skip
-        # rather than let aria2c start and do the checksums
-        return self.asf_query.download(log_dir=self.log_dir)
+        return self.asf_query.download(
+            log_dir=self.log_dir,
+            skip_if_exists=self.skip_download_if_exists,
+        )
 
     @log_runtime
     def _geocode_slcs(self, slc_files, dem_file, burst_db_file):

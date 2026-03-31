@@ -233,7 +233,11 @@ class ASFQuery(YamlModel):
             list(executor.map(download_url, enumerate(urls)))
 
     @log_runtime
-    def download(self, log_dir: Filename = Path(".")) -> list[Path]:
+    def download(
+        self,
+        log_dir: Filename = Path("."),
+        skip_if_exists: bool = True,
+    ) -> list[Path]:
         # Start by saving data available as geojson
         # Always query ASF for metadata (even when downloading from CDSE)
         results = self.query_results()
@@ -247,22 +251,47 @@ class ASFQuery(YamlModel):
         self.out_dir.mkdir(parents=True, exist_ok=True)
         file_names = [self.out_dir / f for f in self._file_names(results)]
 
-        if self.download_source == "CDSE":
-            logger.info("Downloading SLCs from CDSE")
-            ensure_cdse_credentials()
-            # Extract granule names from the ASF query results
-            granule_names = [
-                r["properties"]["fileName"].replace(".zip", "").replace(".SAFE", "")
-                for r in results["features"]
-            ]
-            downloaded = download_slcs_from_cdse(
-                slc_ids=granule_names,
-                output_dir=str(self.out_dir),
-            )
-            file_names = [self.out_dir / f for f in downloaded]
-        else:
-            # Default: download from ASF
-            self._download_with_wget(urls, log_dir=log_dir)
+        # Always check which files are already on disk and skip them.
+        # Even with skip_if_exists=False we avoid re-downloading existing files
+        # (wget -nc/-c would also skip them, but this saves the network overhead).
+        existing_stems = {
+            p.stem for p in self.out_dir.iterdir() if p.is_file()
+        }
+        missing_indices = [
+            i
+            for i, f in enumerate(file_names)
+            if f.stem not in existing_stems
+        ]
+
+        n_total = len(file_names)
+        n_existing = n_total - len(missing_indices)
+        logger.info(
+            f"Found {n_existing}/{n_total} files already in {self.out_dir}."
+            f" Downloading {len(missing_indices)} missing files."
+        )
+
+        if missing_indices:
+            if self.download_source == "CDSE":
+                logger.info("Downloading SLCs from CDSE")
+                ensure_cdse_credentials()
+                # Extract granule names for missing files only
+                granule_names = [
+                    results["features"][i]["properties"]["fileName"]
+                    .replace(".zip", "")
+                    .replace(".SAFE", "")
+                    for i in missing_indices
+                ]
+                downloaded = download_slcs_from_cdse(
+                    slc_ids=granule_names,
+                    output_dir=str(self.out_dir),
+                )
+                # Update file_names for newly downloaded
+                for idx, fname in zip(missing_indices, downloaded):
+                    file_names[idx] = self.out_dir / fname
+            else:
+                # Default: download from ASF (only missing URLs)
+                missing_urls = [urls[i] for i in missing_indices]
+                self._download_with_wget(missing_urls, log_dir=log_dir)
 
         if self.unzip:
             # Change to .SAFE extension
