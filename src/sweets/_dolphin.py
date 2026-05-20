@@ -62,22 +62,22 @@ class DolphinOptions(BaseModel):
     """
 
     half_window: tuple[int, int] = Field(
-        default=(5, 11),
+        default=(7, 14),
         description=(
-            "Half-window (y, x) for phase linking. The default of (5, 11) gives"
+            "Half-window (y, x) for phase linking. The default of (7, 14) gives"
             " roughly square windows for the OPERA 10x5 m geocoded posting"
             " (y-spacing 10 m, x-spacing 5 m)."
         ),
     )
     strides: tuple[int, int] = Field(
-        default=(6, 12),
+        default=(3, 6),
         description=(
             "Output strides (y, x). With OPERA 10x5 m posting and the default"
-            " (6, 12), outputs end up at 60 x 60 m."
+            " (3, 6), outputs end up at 30 x 30 m."
         ),
     )
     ministack_size: int = Field(
-        default=10,
+        default=15,
         ge=2,
         description="Number of SLCs per ministack for the sequential estimator.",
     )
@@ -86,7 +86,7 @@ class DolphinOptions(BaseModel):
         description="Use EVD instead of EMI for phase linking.",
     )
     max_bandwidth: int = Field(
-        default=4,
+        default=3,
         ge=1,
         description="Form nearest-N interferograms (by index) for the network.",
     )
@@ -114,7 +114,7 @@ class DolphinOptions(BaseModel):
         description="Number of SNAPHU tiles to process in parallel (for each of `n_parallel_unwrap` jobs).",
     )
     snaphu_tile_overlap: tuple[int, int] = Field(
-        default=(300, 300),
+        default=(400, 400),
         description="SNAPHU tile overlap (rows, cols).",
     )
     snaphu_cost: Literal["defo", "smooth"] = Field(
@@ -141,7 +141,7 @@ class DolphinOptions(BaseModel):
     )
     block_shape: tuple[int, int] = Field(
         default=(256, 256),
-        description="Block shape (rows, cols) used for streaming I/O.",
+        description="Block shape (rows, cols) used during phase linking.",
     )
 
 
