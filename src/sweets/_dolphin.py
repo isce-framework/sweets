@@ -62,10 +62,11 @@ class DolphinOptions(BaseModel):
     """
 
     half_window: tuple[int, int] = Field(
-        default=(11, 5),
+        default=(5, 11),
         description=(
-            "Half-window (y, x) for phase linking. The default of (11, 5) gives"
-            " roughly square windows for the OPERA 10x5 m geocoded posting."
+            "Half-window (y, x) for phase linking. The default of (5, 11) gives"
+            " roughly square windows for the OPERA 10x5 m geocoded posting"
+            " (y-spacing 10 m, x-spacing 5 m)."
         ),
     )
     strides: tuple[int, int] = Field(
