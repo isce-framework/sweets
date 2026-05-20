@@ -148,9 +148,11 @@ def create_config_files(
         Set ``runconfig.groups.worker.gpu_enabled`` in each emitted
         COMPASS runconfig. ``s1_geocode_stack.run`` does not expose this,
         so sweets patches the dumped YAMLs in-place after they are
-        written. Harmless on CPU-only isce3 builds — COMPASS routes the
-        flag through ``isce3.core.gpu_check.use_gpu`` which falls back
-        to CPU when ``isce3.cuda`` is not importable. Defaults to True.
+        written. Sweets treats this as "use GPU if available": when the
+        running isce3 has no CUDA support, the flag is silently
+        downgraded to ``False`` before patching, since
+        ``isce3.core.gpu_check.use_gpu`` would otherwise raise and abort
+        the workflow. Defaults to True.
     gpu_id : int, optional
         Index of the CUDA device for COMPASS to use when
         ``gpu_enabled=True``. Ignored otherwise. Defaults to 0.
@@ -160,7 +162,8 @@ def create_config_files(
     List[Path]
         Paths of runconfig files to pass to s1_cslc.py
     """
-    # Check if they already exist:
+    gpu_enabled = _resolve_gpu_enabled(gpu_enabled)
+
     runconfig_path = Path(out_dir) / "runconfigs"
     if overwrite:
         shutil.rmtree(runconfig_path, ignore_errors=True)
@@ -170,6 +173,9 @@ def create_config_files(
 
     if len(config_files) > 0:
         logger.info(f"Found {len(config_files)} geocoding config files.")
+        # Re-patch on resume so a previously-written `gpu_enabled: true`
+        # doesn't crash a CPU-only environment, and vice versa.
+        _patch_worker_settings(config_files, gpu_enabled=gpu_enabled, gpu_id=gpu_id)
         return config_files
     s1_geocode_stack.run(
         slc_dir=fspath(slc_dir),
@@ -186,6 +192,27 @@ def create_config_files(
     written = sorted((Path(out_dir) / "runconfigs").glob("*"))
     _patch_worker_settings(written, gpu_enabled=gpu_enabled, gpu_id=gpu_id)
     return written
+
+
+def _resolve_gpu_enabled(requested: bool) -> bool:
+    """Downgrade ``gpu_enabled=True`` to ``False`` on CPU-only isce3 builds.
+
+    COMPASS calls ``isce3.core.gpu_check.use_gpu(True, ...)`` which raises
+    a hard error when ``isce3.cuda`` is not importable, instead of falling
+    back to CPU. Mirror the same ``hasattr(isce3, "cuda")`` probe used
+    inside ``use_gpu`` so sweets users get "use GPU if available" semantics.
+    """
+    if not requested:
+        return False
+    import isce3
+
+    if hasattr(isce3, "cuda"):
+        return True
+    logger.warning(
+        "gpu_enabled=True but this isce3 build has no CUDA support; "
+        "falling back to CPU for COMPASS geocoding."
+    )
+    return False
 
 
 def _patch_worker_settings(

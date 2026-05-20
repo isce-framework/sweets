@@ -133,9 +133,9 @@ class Workflow(YamlModel):
         description=(
             "Run COMPASS geocoding on the GPU when an isce3-cuda build is"
             " available (the `gpu` pixi environment). Harmless on CPU-only"
-            " installs — COMPASS routes the flag through"
-            " `isce3.core.gpu_check.use_gpu`, which falls back to CPU when"
-            " `isce3.cuda` is not importable. Independent of"
+            " installs — sweets probes `isce3.cuda` before patching the"
+            " COMPASS runconfigs and downgrades to CPU when it is missing,"
+            " since COMPASS itself would otherwise raise. Independent of"
             " `dolphin.gpu_enabled`, which controls phase linking."
         ),
     )
