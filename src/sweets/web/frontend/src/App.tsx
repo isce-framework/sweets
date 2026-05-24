@@ -11,12 +11,12 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "jobs", label: "Jobs" },
 ];
 
-function Sidebar() {
+function TopNav() {
   const { tab, setTab } = useAppState();
   return (
-    <aside className="sidebar">
-      <h1>sweets</h1>
-      <div className="tabs">
+    <header className="topbar">
+      <div className="title">sweets</div>
+      <nav className="topbar-tabs">
         {TABS.map((t) => (
           <div
             key={t.id}
@@ -26,23 +26,40 @@ function Sidebar() {
             {t.label}
           </div>
         ))}
+      </nav>
+    </header>
+  );
+}
+
+function Body() {
+  const { tab } = useAppState();
+  if (tab === "config") {
+    return (
+      <main className="content full">
+        <ConfigPanel />
+      </main>
+    );
+  }
+  return (
+    <main className="content split">
+      <aside className="sidebar">
+        <div className="panel">
+          {tab === "search" && <SearchPanel />}
+          {tab === "jobs" && <JobsPanel />}
+        </div>
+      </aside>
+      <div className="map">
+        <MapView />
       </div>
-      <div className="panel">
-        {tab === "search" && <SearchPanel />}
-        {tab === "config" && <ConfigPanel />}
-        {tab === "jobs" && <JobsPanel />}
-      </div>
-    </aside>
+    </main>
   );
 }
 
 function Shell() {
   return (
     <div className="app">
-      <Sidebar />
-      <div className="map">
-        <MapView />
-      </div>
+      <TopNav />
+      <Body />
     </div>
   );
 }

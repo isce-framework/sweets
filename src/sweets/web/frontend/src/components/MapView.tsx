@@ -104,7 +104,9 @@ export function MapView() {
     searchLayerRef.current = searchLayer;
   }, [setBbox]);
 
-  // Sync AOI rectangle from state (e.g. typed-in bbox).
+  // Sync AOI rectangle from state (e.g. typed-in bbox). The AOI layer is
+  // always kept on top of the search-result overlay so a drawn box doesn't
+  // get buried under returned granule polygons.
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -130,9 +132,12 @@ export function MapView() {
         AOI_STYLE,
       ).addTo(map);
     }
+    aoiLayerRef.current.bringToFront();
   }, [bbox]);
 
-  // Replace the search-results overlay whenever results change.
+  // Replace the search-results overlay whenever results change. fitBounds is
+  // expanded to include the AOI if it's set, so the user always sees their
+  // requested area along with the returned granules.
   useEffect(() => {
     const layer = searchLayerRef.current;
     const map = mapRef.current;
@@ -141,11 +146,17 @@ export function MapView() {
     if (searchResults && searchResults.features.length > 0) {
       layer.addData(searchResults as unknown as GeoJSON.FeatureCollection);
       try {
-        map.fitBounds(layer.getBounds(), { padding: [40, 40] });
+        let bounds = layer.getBounds();
+        if (aoiLayerRef.current) {
+          bounds = bounds.extend(aoiLayerRef.current.getBounds());
+        }
+        map.fitBounds(bounds, { padding: [40, 40] });
       } catch {
         // empty bounds — ignore
       }
     }
+    // Keep AOI visible on top of any newly-added burst polygons.
+    if (aoiLayerRef.current) aoiLayerRef.current.bringToFront();
   }, [searchResults]);
 
   function startDraw() {

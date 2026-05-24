@@ -16,7 +16,14 @@ export interface SearchFeatureProps {
   burst_id?: string | null;
   frame?: number | null;
   url?: string | null;
+  flight_direction?: "ASCENDING" | "DESCENDING" | null;
   in_coverage: boolean;
+}
+
+export interface TrackSummary {
+  track: number;
+  flight_direction?: "ASCENDING" | "DESCENDING" | null;
+  count: number;
 }
 
 export interface SearchFeature {
@@ -39,6 +46,7 @@ export interface SearchResponse {
   count: number;
   source: SourceKind;
   coverage: CoverageSummary;
+  tracks: TrackSummary[];
 }
 
 export type JobStatus =

@@ -49,6 +49,7 @@ def _feature(
     burst_id: Optional[str] = None,
     frame: Optional[int] = None,
     url: Optional[str] = None,
+    flight_direction: Optional[str] = None,
 ) -> dict:
     return {
         "type": "Feature",
@@ -59,12 +60,27 @@ def _feature(
             "burst_id": burst_id,
             "frame": frame,
             "url": url,
+            "flight_direction": _norm_direction(flight_direction),
             # Filled in later by _annotate_coverage; default to True so
             # sources without burst-level coverage (NISAR) still render.
             "in_coverage": True,
         },
         "geometry": geometry,
     }
+
+
+def _norm_direction(v: Any) -> Optional[str]:
+    """Normalize various CMR/ASF flight-direction encodings to ASC/DESC."""
+    if v is None:
+        return None
+    s = str(v).strip().upper()
+    if not s:
+        return None
+    if s.startswith("A"):
+        return "ASCENDING"
+    if s.startswith("D"):
+        return "DESCENDING"
+    return s
 
 
 def _annotate_coverage(features: list[dict]) -> dict[str, Any]:
@@ -156,6 +172,7 @@ def _safe_search(req: SearchRequest) -> list[dict]:
                 burst_id=str(props.get("burst", {}).get("fullBurstID", "") or "")
                 or None,
                 url=props.get("url"),
+                flight_direction=props.get("flightDirection"),
             )
         )
     return out
@@ -185,6 +202,7 @@ def _opera_cslc_search(req: SearchRequest) -> list[dict]:
                 track=props.get("pathNumber"),
                 burst_id=burst_id,
                 url=props.get("url"),
+                flight_direction=props.get("flightDirection"),
             )
         )
     return out
@@ -217,6 +235,8 @@ def _nisar_search(req: SearchRequest) -> list[dict]:
                 track=props.get("track") or props.get("pathNumber"),
                 frame=props.get("frame"),
                 url=props.get("url"),
+                flight_direction=props.get("flightDirection")
+                or props.get("ascendingFlag"),
             )
         )
     return out
@@ -299,4 +319,27 @@ def search_granules(req: SearchRequest) -> dict:
         "count": len(features),
         "source": req.source,
         "coverage": coverage,
+        "tracks": _summarize_tracks(features),
     }
+
+
+def _summarize_tracks(features: list[dict]) -> list[dict]:
+    """Group features by (track, flight_direction) with a granule count.
+
+    The frontend uses this to render a track picker — sweets only downloads
+    one track at a time, and the user typically wants to see which tracks
+    actually have data over the AOI before narrowing.
+    """
+    by_key: dict[tuple[Optional[int], Optional[str]], int] = {}
+    for f in features:
+        p = f["properties"]
+        key = (p.get("track"), p.get("flight_direction"))
+        by_key[key] = by_key.get(key, 0) + 1
+    return [
+        {"track": t, "flight_direction": d, "count": n}
+        for (t, d), n in sorted(
+            by_key.items(),
+            key=lambda kv: (-kv[1], kv[0][0] if kv[0][0] is not None else -1),
+        )
+        if t is not None
+    ]

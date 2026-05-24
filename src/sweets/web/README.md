@@ -21,18 +21,40 @@ FastAPI backend + React/TypeScript frontend for the sweets InSAR workflow.
 
 ## Screenshots
 
-| Search                                                 | Search + coverage                                          |
-| ------------------------------------------------------ | ---------------------------------------------------------- |
-| ![Empty search tab](../../../docs/web/screenshots/01-search-empty.png) | ![39 LA bursts with green/red coverage](../../../docs/web/screenshots/02-search-results.png) |
+**Search (empty)** — pick a source, type or draw an AOI, set a date range.
 
-The right-hand shot is a real OPERA CSLC search over Los Angeles, Jan–Mar 2024
-(`bbox=[-118.5, 33.95, -118.0, 34.35]`). 39 granules returned; the missing-data
-filter picked the 7 burst × 4 date subset that forms a coherent stack (28
-green features kept, 11 red features excluded).
+![Empty search tab](../../../docs/web/screenshots/01-search-empty.png)
 
-| Config (RJSF auto-form)                                          | Jobs                                                  |
-| ---------------------------------------------------------------- | ----------------------------------------------------- |
-| ![Auto-generated config form](../../../docs/web/screenshots/03-config-form.png) | ![Empty jobs tab](../../../docs/web/screenshots/04-jobs-empty.png) |
+**Search (results)** — real OPERA CSLC query over Los Angeles, Jan–Mar 2024
+(`bbox=[-118.5, 33.95, -118.0, 34.35]`). 39 granules from two tracks: T144 DESC
+(26) and T71 ASC (13). The missing-data filter picked the 7-burst × 4-date
+subset that forms a coherent stack — **28 green features kept, 11 red features
+excluded**. The dashed orange box is the requested AOI.
+
+![39 LA bursts with green/red coverage](../../../docs/web/screenshots/02-search-results.png)
+
+**Narrow to one track** — sweets only processes a single track per job; clicking
+a track chip in the sidebar re-runs the search filtered to that track. Here
+we picked T144 DESC, so the ascending stack drops out:
+
+![Search narrowed to track 144 DESC](../../../docs/web/screenshots/02b-search-track-narrowed.png)
+
+**Granule list + export** — expand the list of returned granules, or grab the
+whole set as a CSV or a newline-separated URL list suitable for `wget -i`:
+
+![Granule list with CSV/URL export buttons](../../../docs/web/screenshots/02c-granule-list.png)
+
+**Config (full-page)** — form auto-generated from `Workflow.model_json_schema()`.
+The basic view shows the knobs most users actually touch; "Show advanced"
+exposes the full nested dolphin / tropo configs. AOI + source come from the
+Search tab, not the form.
+
+![Auto-generated config form](../../../docs/web/screenshots/03-config-form.png)
+
+**Jobs** — list, step-bar progress, WebSocket log tail, results manifest, and a
+"View in bowser" button that shells `bowser setup-dolphin <work_dir>/dolphin`.
+
+![Empty jobs tab](../../../docs/web/screenshots/04-jobs-empty.png)
 
 ## Layout
 
