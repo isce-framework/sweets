@@ -384,6 +384,48 @@ class RunCmd:
         workflow.run(starting_step=self.starting_step)
 
 
+@dataclass
+class ServerCmd:
+    """Launch the sweets web UI (FastAPI backend + bundled React frontend).
+
+    Install the optional web extras first::
+
+        pip install -e ".[web]"   # or: pixi install -e <env-with-web-extras>
+
+    Then run ``sweets server`` to start uvicorn on http://localhost:8000.
+    During frontend development, run ``npm run dev`` inside
+    ``src/sweets/web/frontend/`` for hot-reloaded React on :5173 (Vite
+    proxies ``/api`` to :8000).
+    """
+
+    host: str = "127.0.0.1"
+    """Bind address. Use 0.0.0.0 to expose on the network."""
+
+    port: int = 8000
+    """TCP port."""
+
+    reload: bool = False
+    """Enable uvicorn auto-reload (development only)."""
+
+    def execute(self) -> None:
+        try:
+            import uvicorn
+        except ImportError as e:
+            msg = (
+                "sweets server requires the `web` extras. Install via:\n"
+                '    pip install -e ".[web]"\n'
+                f"(original error: {e})"
+            )
+            raise SystemExit(msg) from e
+
+        uvicorn.run(
+            "sweets.web.app:app",
+            host=self.host,
+            port=self.port,
+            reload=self.reload,
+        )
+
+
 def main() -> None:
     """Top-level CLI entry point."""
     cmd = tyro.extras.subcommand_cli_from_dict(
@@ -392,6 +434,7 @@ def main() -> None:
             "run": RunCmd,
             "schema": SchemaCmd,
             "report": ReportCmd,
+            "server": ServerCmd,
         },
         prog="sweets",
         description="Sentinel-1 InSAR workflow runner.",
