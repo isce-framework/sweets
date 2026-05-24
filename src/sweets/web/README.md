@@ -6,7 +6,10 @@ FastAPI backend + React/TypeScript frontend for the sweets InSAR workflow.
 
 1. **Search** — query CMR / ASF for OPERA CSLC bursts, Sentinel-1 SLC bursts,
    or NISAR GSLC frames covering a map-drawn AOI + date range, and overlay
-   the granule outlines on the map.
+   the granule outlines on the map. Runs the same missing-data filter sweets
+   uses on the actual download so the user sees, *before* kicking anything
+   off, which bursts will be kept (green) vs dropped as partial coverage
+   (red).
 2. **Config** — render a form from `Workflow.model_json_schema()` via
    `@rjsf/core`, so every Workflow / Dolphin / Tropo field is exposed
    without hand-written form code.
@@ -15,6 +18,21 @@ FastAPI backend + React/TypeScript frontend for the sweets InSAR workflow.
 4. **View** — once a job finishes, hand off to
    [`bowser`](https://github.com/scottstanie/bowser) via
    `bowser setup-dolphin <work_dir>/dolphin` (button in the job detail).
+
+## Screenshots
+
+| Search                                                 | Search + coverage                                          |
+| ------------------------------------------------------ | ---------------------------------------------------------- |
+| ![Empty search tab](../../../docs/web/screenshots/01-search-empty.png) | ![39 LA bursts with green/red coverage](../../../docs/web/screenshots/02-search-results.png) |
+
+The right-hand shot is a real OPERA CSLC search over Los Angeles, Jan–Mar 2024
+(`bbox=[-118.5, 33.95, -118.0, 34.35]`). 39 granules returned; the missing-data
+filter picked the 7 burst × 4 date subset that forms a coherent stack (28
+green features kept, 11 red features excluded).
+
+| Config (RJSF auto-form)                                          | Jobs                                                  |
+| ---------------------------------------------------------------- | ----------------------------------------------------- |
+| ![Auto-generated config form](../../../docs/web/screenshots/03-config-form.png) | ![Empty jobs tab](../../../docs/web/screenshots/04-jobs-empty.png) |
 
 ## Layout
 

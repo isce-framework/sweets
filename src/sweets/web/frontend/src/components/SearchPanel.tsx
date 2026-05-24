@@ -79,87 +79,87 @@ export function SearchPanel() {
       <h2>AOI</h2>
       <p className="muted">Draw on map, or type a bbox below.</p>
       <div className="row">
-        <div>
-          <label>West</label>
+        <label>
+          West
           <input
             type="number"
             step="0.01"
             value={bbox?.[0] ?? ""}
             onChange={(e) => setBboxField(0, e.target.value)}
           />
-        </div>
-        <div>
-          <label>South</label>
+        </label>
+        <label>
+          South
           <input
             type="number"
             step="0.01"
             value={bbox?.[1] ?? ""}
             onChange={(e) => setBboxField(1, e.target.value)}
           />
-        </div>
+        </label>
       </div>
       <div className="row">
-        <div>
-          <label>East</label>
+        <label>
+          East
           <input
             type="number"
             step="0.01"
             value={bbox?.[2] ?? ""}
             onChange={(e) => setBboxField(2, e.target.value)}
           />
-        </div>
-        <div>
-          <label>North</label>
+        </label>
+        <label>
+          North
           <input
             type="number"
             step="0.01"
             value={bbox?.[3] ?? ""}
             onChange={(e) => setBboxField(3, e.target.value)}
           />
-        </div>
+        </label>
       </div>
 
       <h2>Dates</h2>
       <div className="row">
-        <div>
-          <label>Start</label>
+        <label>
+          Start
           <input
             type="date"
             value={start}
             onChange={(e) => setStart(e.target.value)}
           />
-        </div>
-        <div>
-          <label>End</label>
+        </label>
+        <label>
+          End
           <input
             type="date"
             value={end}
             onChange={(e) => setEnd(e.target.value)}
           />
-        </div>
+        </label>
       </div>
 
       <h2>Filters</h2>
       <div className="row">
-        <div>
-          <label>Track</label>
+        <label>
+          Track
           <input
             type="number"
             value={track}
             placeholder="any"
             onChange={(e) => setTrack(e.target.value)}
           />
-        </div>
+        </label>
         {source === "nisar-gslc" && (
-          <div>
-            <label>Frame</label>
+          <label>
+            Frame
             <input
               type="number"
               value={frame}
               placeholder="any"
               onChange={(e) => setFrame(e.target.value)}
             />
-          </div>
+          </label>
         )}
       </div>
 

@@ -36,6 +36,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.get("/api/health")
+async def health_check():
+    """Health check endpoint."""
+    return {"status": "ok"}
+
+
 # API routes
 app.include_router(jobs.router, prefix="/api/jobs", tags=["jobs"])
 app.include_router(results.router, prefix="/api/jobs", tags=["results"])
@@ -44,13 +51,8 @@ app.include_router(search.router, prefix="/api/search", tags=["search"])
 app.include_router(websocket.router, prefix="/api/ws", tags=["websocket"])
 
 
-# Serve static frontend (production)
+# Serve static frontend (production) — keep this LAST so the catch-all
+# `/` mount doesn't shadow `/api/*` routes registered above.
 STATIC_DIR = Path(__file__).parent / "frontend" / "dist"
 if STATIC_DIR.exists():
     app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
-
-
-@app.get("/api/health")
-async def health_check():
-    """Health check endpoint."""
-    return {"status": "ok"}
