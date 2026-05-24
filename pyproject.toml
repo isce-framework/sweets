@@ -212,6 +212,9 @@ nodejs = ">=20"
 
 [tool.pixi.feature.web.pypi-dependencies]
 sweets = { path = ".", editable = true, extras = ["web"] }
+# Playwright drives the screenshot refresh; chromium binary is pulled in
+# separately via `playwright install chromium` (not a python package).
+playwright = "*"
 
 [tool.pixi.feature.web.tasks]
 # Backend with auto-reload. Use `pixi run -e web sweets-server` instead of
@@ -223,6 +226,10 @@ web-dev = { cmd = "npm run dev", cwd = "src/sweets/web/frontend" }
 web-install = { cmd = "npm install", cwd = "src/sweets/web/frontend" }
 # Production build -> src/sweets/web/frontend/dist (served by FastAPI).
 web-build = { cmd = "npm run build", cwd = "src/sweets/web/frontend" }
+# Refresh docs/web/screenshots/. Builds the frontend, boots uvicorn, drives
+# Playwright through every tab, kills the server. Requires `playwright
+# install chromium` once.
+web-screenshots = "python scripts/web_screenshots.py"
 
 [tool.pixi.feature.plotting.dependencies]
 cartopy = "*"
