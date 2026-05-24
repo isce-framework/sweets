@@ -58,10 +58,29 @@ method, snaphu / spurt knobs, tropo step toggles, etc.:
 ![Advanced config — dolphin section](../../../docs/web/screenshots/03b-config-advanced-dolphin.png)
 ![Advanced config — tropo section](../../../docs/web/screenshots/03c-config-advanced-tropo.png)
 
-**Jobs** — list, step-bar progress, WebSocket log tail, results manifest, and a
-"View in bowser" button that shells `bowser setup-dolphin <work_dir>/dolphin`.
+**Jobs (empty)** — list, step-bar progress, WebSocket log tail, results
+manifest, and a "View in bowser" button that shells
+`bowser setup-dolphin <work_dir>/dolphin`.
 
 ![Empty jobs tab](../../../docs/web/screenshots/04-jobs-empty.png)
+
+**Jobs (running)** — live OPERA CSLC job: 2 burst IDs
+(`T071_151228_IW2/IW3`), 3-month window (Jan–Mar 2024), `n_workers=3`.
+The step bar shows step 1 (download) pulsing; the WebSocket log tail is
+streaming `sardem` / OPERA download messages; the manifest is already
+populating with the GeoTIFFs that have landed on disk.
+
+![Jobs tab with a real OPERA job downloading](../../../docs/web/screenshots/04b-jobs-running.png)
+
+**Jobs (completed)** — same job after the pipeline finished
+(end-to-end in ~3m 30s on this machine). All five step segments lit
+blue, status flipped to green "COMPLETED", 86 entries in the results
+manifest covering dem / watermask / OPERA CSLCs / geometry rasters /
+21 unwrapped interferograms / 7 timeseries pairs / velocity.tif.
+Click "Setup &amp; open" to hand off the `dolphin/` outputs to
+[bowser](https://github.com/scottstanie/bowser).
+
+![Jobs tab after the pipeline completed](../../../docs/web/screenshots/04c-jobs-completed.png)
 
 ## Layout
 

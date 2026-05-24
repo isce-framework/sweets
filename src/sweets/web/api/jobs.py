@@ -20,6 +20,21 @@ router = APIRouter()
 SessionDep = Annotated[Session, Depends(get_session)]
 
 
+def _with_live_step(job: Job) -> Job:
+    """Patch ``job.current_step`` with the live value from the log buffer.
+
+    The executor only persists ``current_step`` to the DB at job completion
+    (final value committed in its ``finally`` block). While a job is running,
+    the log-line step-pattern parser inside ``LogManager`` already tracks the
+    higher value in memory, so we surface it on read to keep the UI's
+    step-bar + "step N/5" label accurate without an extra DB write per line.
+    """
+    live = log_manager.get_current_step(job.id) if job.id is not None else 0
+    if live > job.current_step:
+        job.current_step = live
+    return job
+
+
 @router.get("/", response_model=list[JobRead])
 def list_jobs(
     session: SessionDep,
@@ -36,7 +51,7 @@ def list_jobs(
     )
     if status:
         query = query.where(Job.status == status)
-    return session.exec(query).all()
+    return [_with_live_step(j) for j in session.exec(query).all()]
 
 
 @router.post("/", response_model=JobRead)
@@ -55,7 +70,7 @@ def get_job(job_id: int, session: SessionDep):
     job = session.get(Job, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    return job
+    return _with_live_step(job)
 
 
 @router.patch("/{job_id}", response_model=JobRead)

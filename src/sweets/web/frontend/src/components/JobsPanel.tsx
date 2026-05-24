@@ -73,6 +73,22 @@ export function JobsPanel() {
 
 function JobDetail({ job, onChange }: { job: Job; onChange: () => void }) {
   return (
+    <JobDetailBody job={job} onChange={onChange} />
+  );
+}
+
+function JobDetailBody({ job, onChange }: { job: Job; onChange: () => void }) {
+  // `job.current_step` from the DB only updates at completion (the executor
+  // commits the final step in its `finally` block). The WebSocket already
+  // streams the live step alongside each log line, so we lift that into
+  // local state and take the max with the DB value — the bar animates in
+  // real time while a job is running and stays correct after refresh.
+  const [liveStep, setLiveStep] = useState(0);
+  useEffect(() => {
+    setLiveStep(0);
+  }, [job.id]);
+  const step = Math.max(job.current_step, liveStep);
+  return (
     <>
       <h2>Detail · #{job.id}</h2>
       <div className="muted">
@@ -83,11 +99,11 @@ function JobDetail({ job, onChange }: { job: Job; onChange: () => void }) {
         {STEPS.map((label, i) => {
           const idx = i + 1;
           const cls =
-            job.current_step > idx
+            step > idx
               ? " done"
-              : job.current_step === idx && job.status === "running"
+              : step === idx && job.status === "running"
                 ? " active"
-                : job.current_step >= idx
+                : step >= idx
                   ? " done"
                   : "";
           return <div key={label} className={"step" + cls} title={label} />;
@@ -95,7 +111,11 @@ function JobDetail({ job, onChange }: { job: Job; onChange: () => void }) {
       </div>
 
       <JobActions job={job} onChange={onChange} />
-      <JobLogs jobId={job.id} status={job.status} />
+      <JobLogs
+        jobId={job.id}
+        status={job.status}
+        onStep={(s) => setLiveStep((prev) => (s > prev ? s : prev))}
+      />
       <JobManifest jobId={job.id} />
       <BowserButton jobId={job.id} />
     </>
@@ -158,9 +178,11 @@ function JobActions({ job, onChange }: { job: Job; onChange: () => void }) {
 function JobLogs({
   jobId,
   status,
+  onStep,
 }: {
   jobId: number;
   status: Job["status"];
+  onStep?: (step: number) => void;
 }) {
   const [lines, setLines] = useState<string[]>([]);
 
@@ -172,15 +194,17 @@ function JobLogs({
         const m = JSON.parse(ev.data);
         if (m.type === "history") {
           setLines(m.lines);
+          if (typeof m.step === "number") onStep?.(m.step);
         } else if (m.type === "log") {
           setLines((prev) => [...prev, m.line]);
+          if (typeof m.step === "number") onStep?.(m.step);
         }
       } catch {
         // ignore malformed frames
       }
     };
     return () => ws.close();
-  }, [jobId, status]);
+  }, [jobId, status, onStep]);
 
   return (
     <>
