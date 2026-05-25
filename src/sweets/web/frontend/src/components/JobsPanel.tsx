@@ -92,14 +92,10 @@ function JobDetail({ job, onChange }: { job: Job; onChange: () => void }) {
       <div className="step-bar">
         {STEPS.map((label, i) => {
           const idx = i + 1;
-          const cls =
-            step > idx
-              ? " done"
-              : step === idx && job.status === "running"
-                ? " active"
-                : step >= idx
-                  ? " done"
-                  : "";
+          let cls = "";
+          if (step > idx) cls = " done";
+          else if (step === idx)
+            cls = job.status === "running" ? " active" : " done";
           return <div key={label} className={"step" + cls} title={label} />;
         })}
       </div>

@@ -20,28 +20,35 @@ router = APIRouter()
 SessionDep = Annotated[Session, Depends(get_session)]
 
 
-def _with_live_step(job: Job) -> Job:
-    """Patch ``job.current_step`` with the live value from the log buffer.
+def _to_read(job: Job) -> JobRead:
+    """Convert a DB ``Job`` to a ``JobRead`` with the live step folded in.
 
     The executor only persists ``current_step`` to the DB at job completion
     (final value committed in its ``finally`` block). While a job is running,
-    the log-line step-pattern parser inside ``LogManager`` already tracks the
-    higher value in memory, so we surface it on read to keep the UI's
+    the log-line step-pattern parser inside ``LogManager`` already tracks
+    the higher value in memory, so we surface it here to keep the UI's
     step-bar + "step N/5" label accurate without an extra DB write per line.
+
+    Returning a fresh ``JobRead`` (instead of mutating the SQLModel
+    instance) avoids the footgun where a stray ``session.commit()``
+    later in the request lifecycle would persist the in-memory bump
+    over the real value.
     """
-    live = log_manager.get_current_step(job.id) if job.id is not None else 0
-    if live > job.current_step:
-        job.current_step = live
-    return job
+    data = JobRead.model_validate(job)
+    if job.id is not None:
+        live = log_manager.get_current_step(job.id)
+        if live > data.current_step:
+            data.current_step = live
+    return data
 
 
-@router.get("/", response_model=list[JobRead])
+@router.get("/")
 def list_jobs(
     session: SessionDep,
     skip: int = 0,
     limit: int = 100,
     status: JobStatus | None = None,
-):
+) -> list[JobRead]:
     """List all jobs, optionally filtered by status."""
     query = (
         select(Job)
@@ -51,7 +58,7 @@ def list_jobs(
     )
     if status:
         query = query.where(Job.status == status)
-    return [_with_live_step(j) for j in session.exec(query).all()]
+    return [_to_read(j) for j in session.exec(query).all()]
 
 
 @router.post("/", response_model=JobRead)
@@ -64,13 +71,13 @@ def create_job(job: JobCreate, session: SessionDep):
     return db_job
 
 
-@router.get("/{job_id}", response_model=JobRead)
-def get_job(job_id: int, session: SessionDep):
+@router.get("/{job_id}")
+def get_job(job_id: int, session: SessionDep) -> JobRead:
     """Get a job by ID."""
     job = session.get(Job, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    return _with_live_step(job)
+    return _to_read(job)
 
 
 @router.patch("/{job_id}", response_model=JobRead)

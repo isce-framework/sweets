@@ -65,27 +65,31 @@ async def job_logs_websocket(websocket: WebSocket, job_id: int):
             return
 
         # Stream new logs
+        terminal = {
+            JobStatus.COMPLETED,
+            JobStatus.FAILED,
+            JobStatus.CANCELLED,
+        }
         while True:
             try:
                 # Wait for new log with timeout to check job status
                 msg = await asyncio.wait_for(queue.get(), timeout=2.0)
                 await websocket.send_json(msg)
             except asyncio.TimeoutError:
-                # Check if job finished
+                # Check if the job has finished — or been deleted while we
+                # were watching. The deleted case needs an explicit break;
+                # otherwise the loop spins forever subscribed to an
+                # orphaned buffer, holding the WebSocket open.
                 with Session(engine) as session:
                     job = session.get(Job, job_id)
-                    if job and job.status in (
-                        JobStatus.COMPLETED,
-                        JobStatus.FAILED,
-                        JobStatus.CANCELLED,
-                    ):
-                        await websocket.send_json(
-                            {
-                                "type": "status",
-                                "status": job.status.value,
-                            }
-                        )
-                        break
+                if job is None:
+                    await websocket.send_json({"type": "status", "status": "deleted"})
+                    break
+                if job.status in terminal:
+                    await websocket.send_json(
+                        {"type": "status", "status": job.status.value}
+                    )
+                    break
 
     except WebSocketDisconnect:
         pass

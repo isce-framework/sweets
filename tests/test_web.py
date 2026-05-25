@@ -33,15 +33,14 @@ def client(tmp_path, monkeypatch):
     # Repoint the modules that captured `engine` at import time.
     import sweets.web.api.jobs as jobs_mod
     import sweets.web.api.websocket as ws_mod
+    import sweets.web.app as app_mod
     import sweets.web.services.executor as exec_mod
 
-    for mod in (jobs_mod, ws_mod, exec_mod):
+    for mod in (jobs_mod, ws_mod, exec_mod, app_mod):
         monkeypatch.setattr(mod, "engine", fresh_engine, raising=False)
     SQLModel.metadata.create_all(fresh_engine)
 
-    from sweets.web.app import app
-
-    return TestClient(app)
+    return TestClient(app_mod.app)
 
 
 def test_health(client):
@@ -64,6 +63,39 @@ def test_create_job_rejects_missing_aoi(client):
     """JobCreate's validator must reject a config with no bbox/wkt."""
     r = client.post("/api/jobs/", json={"name": "j", "config": {}})
     assert r.status_code in (400, 422)
+
+
+def test_stale_running_jobs_are_swept(client):
+    """A RUNNING job left over from a previous server run should be reaped.
+
+    Simulates the case where the server crashed mid-job: pid is dead (or
+    never existed), but the DB row still says RUNNING. The lifespan sweep
+    must flip it to FAILED so the user isn't stuck.
+    """
+    from sweets.web.app import _sweep_stale_jobs
+    from sweets.web.models import Job, JobStatus
+    from sweets.web.models.database import engine
+    from sqlmodel import Session
+
+    with Session(engine) as session:
+        stuck = Job(
+            name="zombie",
+            config={"bbox": [0.0, 0.0, 1.0, 1.0]},
+            status=JobStatus.RUNNING,
+            pid=0,  # PID 0 raises OSError on os.kill; that path is exercised
+        )
+        session.add(stuck)
+        session.commit()
+        session.refresh(stuck)
+        stuck_id = stuck.id
+
+    _sweep_stale_jobs()
+
+    r = client.get(f"/api/jobs/{stuck_id}")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "failed"
+    assert "server restart" in (body.get("error_message") or "")
 
 
 def test_job_lifecycle_without_spawn(client):

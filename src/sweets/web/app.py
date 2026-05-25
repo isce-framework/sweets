@@ -2,21 +2,60 @@
 
 from __future__ import annotations
 
+import logging
+import os
+import signal
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from sqlmodel import Session, select
 
 from sweets.web.api import jobs, results, schema, search, websocket
-from sweets.web.models.database import create_db_and_tables
+from sweets.web.models import Job, JobStatus
+from sweets.web.models.database import create_db_and_tables, engine
+
+logger = logging.getLogger(__name__)
+
+
+def _sweep_stale_jobs() -> None:
+    """Mark RUNNING jobs as FAILED on startup.
+
+    If the server crashed or was restarted mid-job the row stays "running"
+    forever — the subprocess is orphaned and we've lost its stdout pipe,
+    so we can't reattach or stream logs anyway. Best-effort SIGTERM the
+    pid if it's still alive (so we don't leak the orphan), then flip the
+    status to FAILED with a note so the user knows to re-create.
+    """
+    with Session(engine) as session:
+        stale = session.exec(select(Job).where(Job.status == JobStatus.RUNNING)).all()
+        for job in stale:
+            if job.pid:
+                try:
+                    os.kill(job.pid, signal.SIGTERM)
+                except (ProcessLookupError, PermissionError):
+                    pass
+            job.status = JobStatus.FAILED
+            job.pid = None
+            note = "[server restart: orphaned subprocess, status unknown]"
+            job.error_message = (
+                f"{job.error_message}\n{note}" if job.error_message else note
+            )
+            session.add(job)
+        session.commit()
+        if stale:
+            logger.warning(
+                "Marked %d stale RUNNING job(s) as FAILED on startup", len(stale)
+            )
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Initialize database on startup."""
+    """Initialize database and reconcile orphaned jobs on startup."""
     create_db_and_tables()
+    _sweep_stale_jobs()
     yield
 
 

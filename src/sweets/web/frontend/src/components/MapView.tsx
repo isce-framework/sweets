@@ -102,7 +102,13 @@ export function MapView() {
 
     mapRef.current = map;
     searchLayerRef.current = searchLayer;
-  }, [setBbox]);
+    // Initialize the Leaflet map exactly once. `setBbox` would otherwise
+    // pull this effect into the context-rebuild churn loop — every search
+    // result or tab switch would rebuild the context's memoized value,
+    // give us a new setBbox reference, and re-fire this effect (the guard
+    // above short-circuits but it's wasted work).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Sync AOI rectangle from state (e.g. typed-in bbox). The AOI layer is
   // always kept on top of the search-result overlay so a drawn box doesn't

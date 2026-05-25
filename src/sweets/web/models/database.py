@@ -10,14 +10,12 @@ from sqlmodel import Session, SQLModel, create_engine
 DEFAULT_DB_PATH = Path.home() / ".sweets" / "sweets.db"
 
 
-def get_database_url(db_path: Path | None = None) -> str:
-    """Get SQLite database URL."""
-    path = db_path or DEFAULT_DB_PATH
-    path.parent.mkdir(parents=True, exist_ok=True)
-    return f"sqlite:///{path}"
+def _database_url() -> str:
+    DEFAULT_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    return f"sqlite:///{DEFAULT_DB_PATH}"
 
 
-engine = create_engine(get_database_url(), echo=False)
+engine = create_engine(_database_url(), echo=False)
 
 
 def create_db_and_tables():
