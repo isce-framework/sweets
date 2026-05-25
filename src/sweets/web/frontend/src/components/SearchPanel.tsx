@@ -27,14 +27,15 @@ export function SearchPanel() {
     setSource,
     bbox,
     setBbox,
+    searchParams,
+    setSearchParams,
     setSearchResults,
     searchResults,
   } = useAppState();
+  const { start, end, track, frame } = searchParams;
+  const setField = (k: keyof typeof searchParams, v: string) =>
+    setSearchParams((p) => ({ ...p, [k]: v }));
 
-  const [start, setStart] = useState("2024-01-01");
-  const [end, setEnd] = useState("2024-12-31");
-  const [track, setTrack] = useState<string>("");
-  const [frame, setFrame] = useState<string>("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showGranules, setShowGranules] = useState(false);
@@ -58,23 +59,27 @@ export function SearchPanel() {
     }
     setError(null);
     setBusy(true);
+    const trackVal =
+      overrideTrack !== undefined
+        ? overrideTrack
+        : track
+          ? Number(track)
+          : null;
     const req: SearchRequest = {
       source,
       bbox,
       start,
       end,
-      track:
-        overrideTrack !== undefined
-          ? overrideTrack
-          : track
-            ? Number(track)
-            : null,
+      track: trackVal,
       frame: frame ? Number(frame) : null,
     };
     try {
       const r = await api.search(req);
       setSearchResults(r);
-      if (overrideTrack != null) setTrack(String(overrideTrack));
+      // Persist the override so the Config tab picks it up too.
+      if (overrideTrack !== undefined) {
+        setField("track", overrideTrack == null ? "" : String(overrideTrack));
+      }
     } catch (e) {
       setError(String(e));
     } finally {
@@ -146,7 +151,7 @@ export function SearchPanel() {
           <input
             type="date"
             value={start}
-            onChange={(e) => setStart(e.target.value)}
+            onChange={(e) => setField("start", e.target.value)}
           />
         </label>
         <label>
@@ -154,7 +159,7 @@ export function SearchPanel() {
           <input
             type="date"
             value={end}
-            onChange={(e) => setEnd(e.target.value)}
+            onChange={(e) => setField("end", e.target.value)}
           />
         </label>
       </div>
@@ -166,8 +171,8 @@ export function SearchPanel() {
           <input
             type="number"
             value={track}
-            placeholder="any"
-            onChange={(e) => setTrack(e.target.value)}
+            placeholder={source === "safe" ? "required" : "any"}
+            onChange={(e) => setField("track", e.target.value)}
           />
         </label>
         {source === "nisar-gslc" && (
@@ -177,7 +182,7 @@ export function SearchPanel() {
               type="number"
               value={frame}
               placeholder="any"
-              onChange={(e) => setFrame(e.target.value)}
+              onChange={(e) => setField("frame", e.target.value)}
             />
           </label>
         )}
@@ -192,7 +197,7 @@ export function SearchPanel() {
           style={{ marginLeft: 6 }}
           onClick={() => {
             setSearchResults(null);
-            setTrack("");
+            setField("track", "");
           }}
         >
           Clear

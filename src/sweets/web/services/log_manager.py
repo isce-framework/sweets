@@ -1,13 +1,26 @@
-"""Log management for streaming job output via WebSocket."""
+"""Log management for streaming job output via WebSocket.
+
+Producer/consumer model: the executor runs the workflow subprocess in a
+background thread and pushes each stdout line through ``append_log``.
+WebSocket consumers subscribe to a per-job ``asyncio.Queue``. Because the
+producer thread is *not* on the asyncio event loop, we route every queue
+write through ``loop.call_soon_threadsafe`` so the queue's internal
+``_wakeup`` machinery stays loop-bound.
+"""
 
 from __future__ import annotations
 
 import asyncio
 import re
+import threading
 from collections import defaultdict
 from dataclasses import dataclass, field
 
-# Regex patterns to detect workflow step transitions
+# Best-effort regex map from log lines to a 1-5 step bucket. Patterns are
+# matched against pipeline log output that we don't control (dolphin /
+# sweets.core / COMPASS subprocesses), so this is heuristic — the UI uses
+# `max(current_step, this)` and we never go backward, so a missed transition
+# only delays the indicator, never corrupts it.
 STEP_PATTERNS = [
     (1, re.compile(r"(Downloading|Querying ASF|download)", re.IGNORECASE)),
     (2, re.compile(r"(Creating GSLCs|Geocoding|geocode)", re.IGNORECASE)),
@@ -18,45 +31,74 @@ STEP_PATTERNS = [
 
 
 @dataclass
+class _Subscriber:
+    """A single WebSocket consumer pinned to the event loop that owns it."""
+
+    queue: asyncio.Queue
+    loop: asyncio.AbstractEventLoop
+
+
+@dataclass
 class JobLogBuffer:
     """Buffer for a single job's logs."""
 
     lines: list[str] = field(default_factory=list)
     current_step: int = 0
-    subscribers: set[asyncio.Queue] = field(default_factory=set)
+    subscribers: set[_Subscriber] = field(default_factory=set)
+    # Plain threading lock — `append` is called from the executor thread
+    # and `subscribe`/`unsubscribe` from the asyncio loop thread, so we
+    # need cross-thread safety, not asyncio cooperation.
+    _lock: threading.Lock = field(default_factory=threading.Lock)
 
     def append(self, line: str):
-        """Add a log line and notify subscribers."""
+        """Add a log line and notify subscribers.
+
+        Safe to call from any thread; queue writes are dispatched onto
+        each subscriber's owning event loop via ``call_soon_threadsafe``.
+        """
         self.lines.append(line)
 
-        # Check for step transitions
         for step_num, pattern in STEP_PATTERNS:
             if pattern.search(line) and step_num > self.current_step:
                 self.current_step = step_num
                 break
 
-        # Notify all subscribers
-        for queue in self.subscribers:
-            try:
-                queue.put_nowait(
-                    {"type": "log", "line": line, "step": self.current_step}
-                )
-            except asyncio.QueueFull:
-                pass  # Drop if queue is full
+        msg = {"type": "log", "line": line, "step": self.current_step}
+        with self._lock:
+            subs = list(self.subscribers)
+        for sub in subs:
+            sub.loop.call_soon_threadsafe(_safe_put, sub.queue, msg)
 
     def subscribe(self) -> asyncio.Queue:
-        """Subscribe to log updates. Returns a queue that receives new lines."""
+        """Subscribe to log updates. Must be called from inside the event loop."""
         queue: asyncio.Queue = asyncio.Queue(maxsize=1000)
-        self.subscribers.add(queue)
+        sub = _Subscriber(queue=queue, loop=asyncio.get_running_loop())
+        with self._lock:
+            self.subscribers.add(sub)
+        # Stash the wrapper on the queue so unsubscribe doesn't have to
+        # rescan the whole subscriber set.
+        queue._sweets_sub = sub  # type: ignore[attr-defined]
         return queue
 
     def unsubscribe(self, queue: asyncio.Queue):
         """Unsubscribe from log updates."""
-        self.subscribers.discard(queue)
+        sub = getattr(queue, "_sweets_sub", None)
+        if sub is None:
+            return
+        with self._lock:
+            self.subscribers.discard(sub)
 
     def get_history(self) -> list[str]:
         """Get all buffered log lines."""
         return list(self.lines)
+
+
+def _safe_put(queue: asyncio.Queue, msg: dict) -> None:
+    """put_nowait, swallowing QueueFull so a stalled client can't OOM us."""
+    try:
+        queue.put_nowait(msg)
+    except asyncio.QueueFull:
+        pass
 
 
 class LogManager:
@@ -64,7 +106,6 @@ class LogManager:
 
     def __init__(self):
         self._buffers: dict[int, JobLogBuffer] = defaultdict(JobLogBuffer)
-        self._lock = asyncio.Lock()
 
     def get_buffer(self, job_id: int) -> JobLogBuffer:
         """Get or create a log buffer for a job."""

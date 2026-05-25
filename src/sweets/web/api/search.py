@@ -70,17 +70,24 @@ def _feature(
 
 
 def _norm_direction(v: Any) -> Optional[str]:
-    """Normalize various CMR/ASF flight-direction encodings to ASC/DESC."""
+    """Normalize various CMR/ASF flight-direction encodings to ASC/DESC.
+
+    Returns ``None`` for anything we can't confidently map. NISAR CMR
+    granules expose orbit direction as ``AscendingFlag = "T" | "F"``; the
+    raw "T"/"F" would otherwise leak into the UI's track chips.
+    """
     if v is None:
         return None
     s = str(v).strip().upper()
-    if not s:
-        return None
-    if s.startswith("A"):
+    if s in {"ASCENDING", "ASC", "ASCEND"}:
         return "ASCENDING"
-    if s.startswith("D"):
+    if s in {"DESCENDING", "DESC", "DESCEND"}:
         return "DESCENDING"
-    return s
+    if s in {"T", "TRUE", "1"}:
+        return "ASCENDING"
+    if s in {"F", "FALSE", "0"}:
+        return "DESCENDING"
+    return None
 
 
 def _annotate_coverage(features: list[dict]) -> dict[str, Any]:

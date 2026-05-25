@@ -69,7 +69,9 @@ web = [
   "sqlmodel",
   "python-multipart",
   "websockets",
-  "titiler.core",
+  # Required by `fastapi.testclient.TestClient` (used by tests/test_web.py)
+  # and by any caller that wants to hit the sweets API from Python.
+  "httpx",
 ]
 
 [project.urls]

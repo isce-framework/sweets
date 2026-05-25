@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import signal
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -147,7 +147,7 @@ def cancel_job(job_id: int, session: SessionDep):
             pass  # Already dead
 
     job.status = JobStatus.CANCELLED
-    job.completed_at = datetime.utcnow()
+    job.completed_at = datetime.now(timezone.utc)
     job.pid = None
 
     log_manager.append_log(job_id, "Job cancelled by user")

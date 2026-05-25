@@ -1,4 +1,4 @@
-"""Web UI for sweets - FastAPI backend with Svelte frontend."""
+"""Web UI for sweets — FastAPI backend with a React frontend."""
 
 from __future__ import annotations
 

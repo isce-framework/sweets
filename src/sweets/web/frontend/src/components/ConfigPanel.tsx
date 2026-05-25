@@ -4,6 +4,8 @@ import type { RJSFSchema, UiSchema } from "@rjsf/utils";
 import validator from "@rjsf/validator-ajv8";
 import { api } from "../api";
 import { useAppState } from "../state";
+import type { SearchParams } from "../state";
+import type { SourceKind } from "../types";
 
 // Fields shown in the default "basic" view. Trimmed to the knobs that
 // actually matter when configuring a new run from the UI; everything else
@@ -79,6 +81,36 @@ function rewriteTuplesInPlace(node: unknown): void {
   }
 }
 
+// Build the discriminated-union `Workflow.search` dict from the shared
+// Search-tab state. Fields that the backend Workflow models would mark as
+// required (e.g. BurstSearch.start) are required here too — surface a
+// human-readable message instead of letting the job fail in the executor
+// subprocess.
+function buildSearch(
+  source: SourceKind,
+  bbox: [number, number, number, number],
+  sp: SearchParams,
+): { search: Record<string, unknown> } | { error: string } {
+  const search: Record<string, unknown> = { kind: source, bbox };
+  if (!sp.start || !sp.end) {
+    return { error: "Set Start and End dates on the Search tab." };
+  }
+  search.start = sp.start;
+  search.end = sp.end;
+  if (source === "safe") {
+    if (!sp.track) {
+      return { error: "Track is required for the S1 burst SAFE source." };
+    }
+    search.track = Number(sp.track);
+  } else if (source === "opera-cslc") {
+    if (sp.track) search.track = Number(sp.track);
+  } else if (source === "nisar-gslc") {
+    if (sp.track) search.track = Number(sp.track);
+    if (sp.frame) search.frame = Number(sp.frame);
+  }
+  return { search };
+}
+
 export function ConfigPanel() {
   const [fullSchema, setFullSchema] = useState<RJSFSchema | null>(null);
   const [formData, setFormData] = useState<Record<string, unknown>>({});
@@ -86,7 +118,8 @@ export function ConfigPanel() {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const { bbox, source, setTab, setSelectedJobId } = useAppState();
+  const { bbox, source, searchParams, setTab, setSelectedJobId } =
+    useAppState();
 
   useEffect(() => {
     api
@@ -103,27 +136,28 @@ export function ConfigPanel() {
     return pickFields(fullSchema, showAdvanced ? ADVANCED_FIELDS : BASIC_FIELDS);
   }, [fullSchema, showAdvanced]);
 
-  async function submit() {
+  async function submit(opts: { start: boolean }) {
     if (!bbox) {
       setError("No AOI set. Draw one on the Search tab first.");
+      return;
+    }
+    const built = buildSearch(source, bbox, searchParams);
+    if ("error" in built) {
+      setError(built.error);
       return;
     }
     setError(null);
     setBusy(true);
     try {
-      // Merge the map AOI + currently-selected source into the form payload
-      // before sending it to the backend. The Workflow validator on the
-      // server side will reject anything malformed.
       const config: Record<string, unknown> = {
         ...formData,
         bbox,
-        search: {
-          ...((formData.search as Record<string, unknown>) ?? {}),
-          kind: source,
-          bbox,
-        },
+        ...built,
       };
       const job = await api.createJob(name, config);
+      if (opts.start) {
+        await api.startJob(job.id);
+      }
       setSelectedJobId(job.id);
       setTab("jobs");
     } catch (e) {
@@ -136,13 +170,30 @@ export function ConfigPanel() {
   if (error && !visibleSchema) return <div className="error">{error}</div>;
   if (!visibleSchema) return <p className="muted">Loading schema...</p>;
 
+  const sp = searchParams;
+  const trackLabel = sp.track
+    ? `T${sp.track}`
+    : source === "safe"
+      ? "missing!"
+      : "any";
+
   return (
     <div className="config-page">
       <div className="config-header">
         <h2 style={{ margin: 0 }}>Configure a new job</h2>
         <p className="muted" style={{ margin: "4px 0 0" }}>
-          AOI comes from the Search tab map ({bbox ? bboxText(bbox) : "not set"}
-          ). Source: <code>{source}</code>.
+          From the Search tab: source <code>{source}</code>, AOI{" "}
+          <code>{bbox ? bboxText(bbox) : "not set"}</code>, dates{" "}
+          <code>
+            {sp.start || "?"} → {sp.end || "?"}
+          </code>
+          , track <code>{trackLabel}</code>
+          {source === "nisar-gslc" && (
+            <>
+              , frame <code>{sp.frame || "any"}</code>
+            </>
+          )}
+          .
         </p>
       </div>
 
@@ -168,13 +219,20 @@ export function ConfigPanel() {
         validator={validator}
         formData={formData}
         onChange={(e) => setFormData(e.formData as Record<string, unknown>)}
-        onSubmit={submit}
+        onSubmit={() => submit({ start: false })}
         liveValidate={false}
         showErrorList={false}
       >
         <div style={{ marginTop: 16, display: "flex", gap: 8 }}>
           <button type="submit" disabled={busy}>
-            {busy ? "Creating..." : "Create job"}
+            {busy ? "Working..." : "Create job"}
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => submit({ start: true })}
+          >
+            Create &amp; start
           </button>
           <button
             type="button"

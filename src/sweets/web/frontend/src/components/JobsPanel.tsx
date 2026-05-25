@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAppState } from "../state";
 import type { Job, Manifest, BowserHandoff } from "../types";
 import { api, jobLogsWs } from "../api";
@@ -72,12 +72,6 @@ export function JobsPanel() {
 }
 
 function JobDetail({ job, onChange }: { job: Job; onChange: () => void }) {
-  return (
-    <JobDetailBody job={job} onChange={onChange} />
-  );
-}
-
-function JobDetailBody({ job, onChange }: { job: Job; onChange: () => void }) {
   // `job.current_step` from the DB only updates at completion (the executor
   // commits the final step in its `finally` block). The WebSocket already
   // streams the live step alongside each log line, so we lift that into
@@ -113,7 +107,6 @@ function JobDetailBody({ job, onChange }: { job: Job; onChange: () => void }) {
       <JobActions job={job} onChange={onChange} />
       <JobLogs
         jobId={job.id}
-        status={job.status}
         onStep={(s) => setLiveStep((prev) => (s > prev ? s : prev))}
       />
       <JobManifest jobId={job.id} />
@@ -177,14 +170,20 @@ function JobActions({ job, onChange }: { job: Job; onChange: () => void }) {
 
 function JobLogs({
   jobId,
-  status,
   onStep,
 }: {
   jobId: number;
-  status: Job["status"];
   onStep?: (step: number) => void;
 }) {
   const [lines, setLines] = useState<string[]>([]);
+  // The parent re-renders every poll tick (3s) and passes a fresh `onStep`
+  // closure each time. Stash it in a ref so the WebSocket effect only
+  // depends on `jobId` — without this the log pane tore down and
+  // reconnected on every parent re-render. The server sends a terminal
+  // "status" frame and closes the socket itself when the job finishes,
+  // so there's no need to react to status changes here.
+  const onStepRef = useRef(onStep);
+  onStepRef.current = onStep;
 
   useEffect(() => {
     setLines([]);
@@ -194,17 +193,17 @@ function JobLogs({
         const m = JSON.parse(ev.data);
         if (m.type === "history") {
           setLines(m.lines);
-          if (typeof m.step === "number") onStep?.(m.step);
+          if (typeof m.step === "number") onStepRef.current?.(m.step);
         } else if (m.type === "log") {
           setLines((prev) => [...prev, m.line]);
-          if (typeof m.step === "number") onStep?.(m.step);
+          if (typeof m.step === "number") onStepRef.current?.(m.step);
         }
       } catch {
         // ignore malformed frames
       }
     };
     return () => ws.close();
-  }, [jobId, status, onStep]);
+  }, [jobId]);
 
   return (
     <>

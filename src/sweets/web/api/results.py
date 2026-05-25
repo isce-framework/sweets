@@ -12,7 +12,6 @@ a `bowser` dev/server process so the user can click straight into the viewer.
 
 from __future__ import annotations
 
-import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -155,7 +154,6 @@ def bowser_view(
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 start_new_session=True,
-                env={**os.environ},
             )
             url = f"http://localhost:{port}/"
         except FileNotFoundError:

@@ -54,15 +54,15 @@ class JobCreate(JobBase):
 
 
 class JobUpdate(SQLModel):
-    """Schema for updating a job."""
+    """Schema for updating a job.
+
+    User-facing fields only. ``pid`` and ``status`` are internal — they're
+    set by the executor / cancel endpoint and shouldn't be writable via
+    PATCH (a client setting ``pid=12345`` could mis-target a SIGTERM).
+    """
 
     name: str | None = None
-    status: JobStatus | None = None
-    current_step: int | None = None
     error_message: str | None = None
-    started_at: datetime | None = None
-    completed_at: datetime | None = None
-    pid: int | None = None
 
 
 class JobRead(JobBase):

@@ -5,7 +5,7 @@ from __future__ import annotations
 import subprocess
 import sys
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
@@ -15,6 +15,11 @@ from sqlmodel import Session
 from sweets.web.models import Job, JobStatus
 from sweets.web.models.database import engine
 from sweets.web.services.log_manager import log_manager
+
+
+def _utcnow() -> datetime:
+    """Timezone-aware UTC now (``datetime.utcnow`` is deprecated in 3.12+)."""
+    return datetime.now(timezone.utc)
 
 
 def _stream_output(proc: subprocess.Popen, job_id: int):
@@ -49,19 +54,20 @@ def run_workflow_sync(job_id: int, config: dict):
         assert job is not None
 
         job.status = JobStatus.RUNNING
-        job.started_at = datetime.utcnow()
+        job.started_at = _utcnow()
         # Cache the resolved work_dir on the Job row so the manifest /
         # bowser-handoff endpoints can find it without re-parsing the config.
+        # Fall back to the server's cwd because that's what Workflow's
+        # `default_factory=Path.cwd` would resolve to inside the subprocess.
         if not job.work_dir:
-            cfg_wd = config.get("work_dir")
-            if cfg_wd:
-                job.work_dir = str(cfg_wd)
+            job.work_dir = str(config.get("work_dir") or Path.cwd())
         session.add(job)
         session.commit()
 
     log_manager.append_log(job_id, f"Starting workflow for job {job_id}")
     log_manager.append_log(job_id, f"Config: {config_path}")
 
+    final_status: JobStatus = JobStatus.FAILED
     try:
         # Run sweets as subprocess
         proc = subprocess.Popen(
@@ -107,7 +113,7 @@ def run_workflow_sync(job_id: int, config: dict):
             job = session.get(Job, job_id)
             assert job is not None
             job.status = final_status
-            job.completed_at = datetime.utcnow()
+            job.completed_at = _utcnow()
             job.current_step = log_manager.get_current_step(job_id)
             job.pid = None
 
