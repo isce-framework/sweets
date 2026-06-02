@@ -557,7 +557,12 @@ class IfgWorkflow(YamlModel):
                 )
             else:
                 self.search.download()
-            if not self.search.existing_static_layers() or self.overwrite:
+            existing_static = self.search.existing_static_layers()
+            n_bursts = len(self.search.burst_ids or [])
+            static_complete = (n_bursts > 0 and len(existing_static) >= n_bursts) or (
+                n_bursts == 0 and existing_static
+            )
+            if not static_complete or self.overwrite:
                 self.search.download_static_layers()
             return self.search.existing_cslcs()
 
