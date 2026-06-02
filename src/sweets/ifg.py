@@ -1136,8 +1136,11 @@ def _collect_existing_ifg_products(ifg_dir: Path) -> list[tuple[Path, Path]]:
     Handles both flat ``<ifg_dir>/`` and burst-grouped
     ``<ifg_dir>/<burst_id>/`` layouts.
     """
+    _SKIP_DIRS = {"stitched", "burst_aligned"}
     products: list[tuple[Path, Path]] = []
     for ifg_f in sorted(ifg_dir.rglob("*_ifg.tif")):
+        if _SKIP_DIRS & set(ifg_f.relative_to(ifg_dir).parts):
+            continue
         coh_f = ifg_f.parent / ifg_f.name.replace("_ifg.tif", "_coherence.tif")
         if coh_f.exists():
             products.append((ifg_f, coh_f))
