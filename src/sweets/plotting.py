@@ -466,3 +466,162 @@ def plot_area_of_interest(
         # Plot the area of interest
         area_gdf.plot(ax=ax, edgecolor="red", facecolor="None", lw=2)
     return fig, ax
+
+
+def plot_ifg_pairs(
+    ifg_dir: Union[Path, str],
+    *,
+    max_pairs: int = 9,
+    figsize: Optional[tuple[float, float]] = None,
+    subsample: int = 2,
+    output_path: Optional[Union[Path, str]] = None,
+) -> plt.Figure:
+    """Plot wrapped-phase and coherence thumbnails for IFG-workflow output.
+
+    Scans ``<ifg_dir>`` (and one level of subdirectories, for burst-grouped
+    layouts) for ``*_wrapped_phase.tif`` / ``*_coherence.tif`` pairs and
+    produces a grid of thumbnails.
+
+    Parameters
+    ----------
+    ifg_dir
+        Top-level interferogram output directory (``IfgWorkflow.ifg_dir``).
+    max_pairs
+        Maximum number of pairs to show.
+    figsize
+        Figure size.  Auto-sized if None.
+    subsample
+        Spatial subsample factor (applied via ``dolphin.io.load_gdal``).
+    output_path
+        If given, save the figure to this path.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+
+    """
+    from dolphin import io as dolph_io
+
+    ifg_dir = Path(ifg_dir)
+    phase_files = sorted(ifg_dir.rglob("*_wrapped_phase.tif"))[:max_pairs]
+    if not phase_files:
+        raise FileNotFoundError(f"No wrapped-phase files found under {ifg_dir}")
+
+    n = len(phase_files)
+    ncols = min(n, 3)
+    nrows = (n + ncols - 1) // ncols
+    if figsize is None:
+        figsize = (ncols * 5, nrows * 4)
+
+    fig, axes = plt.subplots(nrows, ncols * 2, figsize=figsize, squeeze=False)
+    fig.suptitle("IFG QA: Wrapped Phase (left) and Coherence (right)", fontsize=12)
+
+    stats: list[dict] = []
+    for i, phase_f in enumerate(phase_files):
+        coh_f = phase_f.parent / phase_f.name.replace(
+            "_wrapped_phase.tif", "_coherence.tif"
+        )
+        row = i // ncols
+        col = (i % ncols) * 2
+
+        pair_tag = phase_f.parent.name  # e.g. 20250725_20250806
+
+        phase_data = dolph_io.load_gdal(phase_f, subsample_factor=subsample)
+        ax_p = axes[row][col]
+        im_p = ax_p.imshow(
+            phase_data,
+            cmap="oil_slick",
+            vmin=-np.pi,
+            vmax=np.pi,
+            interpolation="nearest",
+        )
+        ax_p.set_title(pair_tag, fontsize=8)
+        ax_p.axis("off")
+        fig.colorbar(im_p, ax=ax_p, fraction=0.046, pad=0.04, label="rad")
+
+        if coh_f.exists():
+            coh_data = dolph_io.load_gdal(coh_f, subsample_factor=subsample)
+            valid = np.isfinite(coh_data)
+            mean_coh = float(np.nanmean(coh_data)) if valid.any() else float("nan")
+            ax_c = axes[row][col + 1]
+            im_c = ax_c.imshow(
+                coh_data,
+                cmap="viridis",
+                vmin=0,
+                vmax=1,
+                interpolation="nearest",
+            )
+            ax_c.set_title(f"coh  mean={mean_coh:.3f}", fontsize=8)
+            ax_c.axis("off")
+            fig.colorbar(im_c, ax=ax_c, fraction=0.046, pad=0.04)
+            stats.append({"pair": pair_tag, "mean_coherence": mean_coh})
+
+    # Hide unused axes
+    for i in range(n, nrows * ncols):
+        row = i // ncols
+        col = (i % ncols) * 2
+        axes[row][col].axis("off")
+        axes[row][col + 1].axis("off")
+
+    plt.tight_layout()
+
+    if output_path is not None:
+        fig.savefig(output_path, dpi=150, bbox_inches="tight")
+        print(f"Saved QA figure to {output_path}")
+
+    return fig
+
+
+def save_ifg_qa_metrics(
+    ifg_dir: Union[Path, str],
+    output_path: Optional[Union[Path, str]] = None,
+) -> list[dict]:
+    """Compute and save QA metrics for all IFG pairs.
+
+    Computes mean/median coherence and valid-pixel fraction for each pair,
+    writes a JSON sidecar ``ifg_qa.json`` in ``ifg_dir``, and returns the
+    list of metric dicts.
+
+    Parameters
+    ----------
+    ifg_dir
+        Top-level interferogram output directory.
+    output_path
+        Path for the JSON output.  Defaults to ``<ifg_dir>/ifg_qa.json``.
+
+    Returns
+    -------
+    list[dict]
+        One dict per pair: ``pair``, ``mean_coh``, ``median_coh``,
+        ``valid_frac``.
+
+    """
+    import json
+
+    from dolphin import io as dolph_io
+
+    ifg_dir = Path(ifg_dir)
+    coh_files = sorted(ifg_dir.rglob("*_coherence.tif"))
+
+    metrics: list[dict] = []
+    for coh_f in coh_files:
+        coh = dolph_io.load_gdal(coh_f)
+        valid = np.isfinite(coh)
+        if not valid.any():
+            continue
+        metrics.append(
+            {
+                "pair": coh_f.parent.name,
+                "burst": coh_f.parent.parent.name,
+                "mean_coh": float(np.nanmean(coh)),
+                "median_coh": float(np.nanmedian(coh)),
+                "valid_frac": float(valid.mean()),
+                "file": str(coh_f),
+            }
+        )
+
+    if output_path is None:
+        output_path = ifg_dir / "ifg_qa.json"
+    Path(output_path).write_text(json.dumps(metrics, indent=2))
+    print(f"Wrote QA metrics ({len(metrics)} pairs) to {output_path}")
+    return metrics

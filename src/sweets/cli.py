@@ -385,6 +385,27 @@ class RunCmd:
 
 
 @dataclass
+class IfgRunCmd:
+    """Run an interferogram workflow from a sweets_ifg_config.yaml."""
+
+    config_file: Annotated[Path, tyro.conf.Positional]
+    """Path to a sweets_ifg_config.yaml."""
+
+    starting_step: int = 1
+    """Skip earlier stages (1=download, 2=geocode, 3=crossmul)."""
+
+    def execute(self) -> None:
+        """Load the IfgWorkflow and run it."""
+        if not self.config_file.exists():
+            msg = f"config file {self.config_file} does not exist"
+            raise SystemExit(msg)
+        from sweets.ifg import IfgWorkflow
+
+        workflow = IfgWorkflow.from_yaml(self.config_file)
+        workflow.run(starting_step=self.starting_step)
+
+
+@dataclass
 class ServerCmd:
     """Launch the sweets web UI (FastAPI backend + bundled React frontend).
 
@@ -432,6 +453,7 @@ def main() -> None:
         {
             "config": ConfigCli,
             "run": RunCmd,
+            "ifg-run": IfgRunCmd,
             "schema": SchemaCmd,
             "report": ReportCmd,
             "server": ServerCmd,

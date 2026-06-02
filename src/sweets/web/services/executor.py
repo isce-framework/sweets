@@ -69,9 +69,14 @@ def run_workflow_sync(job_id: int, config: dict):
 
     final_status: JobStatus = JobStatus.FAILED
     try:
+        # Dispatch to the appropriate subcommand based on config contents.
+        # IFG configs carry a top-level "crossmul" key; displacement configs
+        # carry "dolphin". Default to "run" for any unrecognised shape.
+        subcommand = "ifg-run" if "crossmul" in config else "run"
+
         # Run sweets as subprocess
         proc = subprocess.Popen(
-            [sys.executable, "-m", "sweets", "run", str(config_path)],
+            [sys.executable, "-m", "sweets", subcommand, str(config_path)],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
