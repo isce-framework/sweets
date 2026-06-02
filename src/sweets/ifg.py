@@ -872,16 +872,8 @@ class IfgWorkflow(YamlModel):
         )
 
         if self.stitch.run_burst_align:
-            try:
-                from dolphin.burst_alignment import align_bursts
-            except ImportError as e:
-                msg = (
-                    "stitch.run_burst_align requires dolphin.burst_alignment,"
-                    " which is on the feat/burst-alignment branch of dolphin"
-                    " and not yet released. Install that branch or set"
-                    " run_burst_align: false."
-                )
-                raise ImportError(msg) from e
+            from sweets._burst_alignment import align_bursts
+
             align_dir = stitch_dir / "burst_aligned"
             align_dir.mkdir(parents=True, exist_ok=True)
             logger.info("Running burst alignment on complex IFG files...")
