@@ -30,7 +30,7 @@ STEP_PATTERNS = [
 ]
 
 
-@dataclass
+@dataclass(eq=False)
 class _Subscriber:
     """A single WebSocket consumer pinned to the event loop that owns it."""
 

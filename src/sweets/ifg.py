@@ -18,6 +18,7 @@ Configuration serialises to / loads from ``sweets_ifg_config.yaml``.
 
 from __future__ import annotations
 
+import re
 import shutil
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, wait
 from functools import partial
@@ -892,24 +893,35 @@ class IfgWorkflow(YamlModel):
 # ---------------------------------------------------------------------------
 
 
-def _burst_id_from_gslc(path: Path) -> str:
-    """Extract burst ID from a COMPASS GSLC path.
+# Matches OPERA burst token like _T048-101101-IW3_ inside a filename stem.
+# \b word-boundary doesn't work here because underscore is a word char.
+_OPERA_BURST_RE = re.compile(r"(?:^|_)(T\d+-\d+-IW\d)(?:_|$)", re.IGNORECASE)
 
-    For burst-organized COMPASS output (``<burst_id>/<date>/<file>.h5``),
-    the burst ID is the grandparent directory name.  Falls back to a
-    ``"single"`` group for flat or differently-organized stacks so that
-    non-burst sources (OPERA, NISAR) still work.
+
+def _burst_id_from_gslc(path: Path) -> str:
+    """Extract burst ID from a GSLC path.
+
+    Tries three strategies in order:
+
+    1. Grandparent directory name for COMPASS burst-organized output
+       (``<burst_id>/<date>/<file>.h5``, e.g. ``t146_312777_iw1``).
+    2. OPERA CSLC filename pattern ``T048-101101-IW3`` → ``t048_101101_iw3``.
+    3. Falls back to ``"single"`` so non-burst sources still work.
     """
     parts = path.parts
     if len(parts) >= 3:
         grandparent = parts[-3]
-        # COMPASS burst dirs look like t146_312777_iw1
         if (
             "_iw" in grandparent
             or grandparent.startswith("t0")
             or grandparent.startswith("t1")
         ):
             return grandparent
+
+    m = _OPERA_BURST_RE.search(path.stem)
+    if m:
+        return m.group(1).replace("-", "_").lower()
+
     return "single"
 
 
