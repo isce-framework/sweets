@@ -46,7 +46,6 @@ Ported from ``dolphin.burst_alignment`` (feat/burst-alignment branch).
 from __future__ import annotations
 
 import os.path
-import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -61,6 +60,7 @@ from rasterio.windows import from_bounds
 
 from dolphin import io
 from dolphin._types import Filename
+from opera_utils._dates import DATE_FORMAT, _date_format_to_regex
 
 __all__ = [
     "BurstCorrection",
@@ -884,7 +884,11 @@ def _apply_correction(
 
 
 def _build_output_paths(
-    in_paths: Sequence[Path], out_dir: Path, *, suffix: str
+    in_paths: Sequence[Path],
+    out_dir: Path,
+    *,
+    suffix: str,
+    file_date_fmt: str = DATE_FORMAT,
 ) -> list[Path]:
     stems = [p.stem for p in in_paths]
     if len(set(stems)) == len(stems):
@@ -894,15 +898,16 @@ def _build_output_paths(
             out.append(out_dir / f"{p.stem}{suffix}{ext}")
         return out
 
+    date_pat = _date_format_to_regex(file_date_fmt)
     abs_parents = [str(p.resolve().parent) for p in in_paths]
     common = os.path.commonpath(abs_parents) if len(abs_parents) > 1 else ""
     out_paths: list[Path] = []
     for p, parent in zip(in_paths, abs_parents, strict=False):
         rel = os.path.relpath(parent, common) if common else parent
         prefix = rel.replace(os.sep, "_").strip("_") or "burst"
-        # Strip YYYYMMDD date components so dates don't appear twice in the
-        # output stem (once from the directory structure, once from the stem).
-        prefix = re.sub(r"_?\d{8}", "", prefix).strip("_") or "burst"
+        # Strip date tokens so dates don't appear twice in the output stem
+        # when the directory structure already contains the pair dates.
+        prefix = date_pat.sub("", prefix).strip("_") or "burst"
         ext = ".tif" if p.suffix.lower() == ".vrt" else p.suffix
         out_paths.append(out_dir / f"{prefix}__{p.stem}{suffix}{ext}")
     return out_paths
