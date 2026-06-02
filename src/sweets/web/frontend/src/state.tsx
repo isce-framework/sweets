@@ -17,6 +17,10 @@ export interface SearchParams {
   frame: string;
 }
 
+// null means "all bursts" (don't restrict); a string[] is an explicit allow-list
+// passed to search.burst_ids in the job config.
+export type SelectedBurstIds = string[] | null;
+
 const DEFAULT_SEARCH: SearchParams = {
   start: "2024-01-01",
   end: "2024-12-31",
@@ -37,6 +41,8 @@ interface AppState {
   ) => void;
   searchResults: SearchResponse | null;
   setSearchResults: (r: SearchResponse | null) => void;
+  selectedBurstIds: SelectedBurstIds;
+  setSelectedBurstIds: (ids: SelectedBurstIds) => void;
   selectedJobId: number | null;
   setSelectedJobId: (n: number | null) => void;
 }
@@ -51,6 +57,8 @@ export function StateProvider({ children }: { children: ReactNode }) {
   const [searchResults, setSearchResults] = useState<SearchResponse | null>(
     null,
   );
+  const [selectedBurstIds, setSelectedBurstIds] =
+    useState<SelectedBurstIds>(null);
   const [selectedJobId, setSelectedJobId] = useState<number | null>(null);
 
   const value = useMemo(
@@ -65,10 +73,12 @@ export function StateProvider({ children }: { children: ReactNode }) {
       setSearchParams,
       searchResults,
       setSearchResults,
+      selectedBurstIds,
+      setSelectedBurstIds,
       selectedJobId,
       setSelectedJobId,
     }),
-    [tab, bbox, source, searchParams, searchResults, selectedJobId],
+    [tab, bbox, source, searchParams, searchResults, selectedBurstIds, selectedJobId],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

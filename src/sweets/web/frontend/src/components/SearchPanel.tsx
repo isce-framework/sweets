@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useAppState } from "../state";
 import type {
   SearchFeature,
@@ -31,6 +31,7 @@ export function SearchPanel() {
     setSearchParams,
     setSearchResults,
     searchResults,
+    setSelectedBurstIds,
   } = useAppState();
   const { start, end, track, frame } = searchParams;
   const setField = (k: keyof typeof searchParams, v: string) =>
@@ -76,6 +77,7 @@ export function SearchPanel() {
     try {
       const r = await api.search(req);
       setSearchResults(r);
+      setSelectedBurstIds(null); // reset burst filter on every new search
       // Persist the override so the Config tab picks it up too.
       if (overrideTrack !== undefined) {
         setField("track", overrideTrack == null ? "" : String(overrideTrack));
@@ -231,7 +233,33 @@ function ResultsPanel({
   showGranules: boolean;
   setShowGranules: (b: boolean) => void;
 }) {
+  const { selectedBurstIds, setSelectedBurstIds } = useAppState();
   const cov = results.coverage;
+
+  // Unique burst IDs present in the current results, with per-burst count.
+  const burstCounts = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const f of results.features) {
+      const b = f.properties.burst_id;
+      if (b) map.set(b, (map.get(b) ?? 0) + 1);
+    }
+    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  }, [results.features]);
+
+  const allBurstIds = burstCounts.map(([id]) => id);
+  // null means all selected; otherwise check membership in the explicit list.
+  const isChecked = (id: string) =>
+    selectedBurstIds === null || selectedBurstIds.includes(id);
+
+  function toggleBurst(id: string) {
+    const newChecked = allBurstIds.filter((b) =>
+      b === id ? !isChecked(b) : isChecked(b),
+    );
+    // If all are selected again, go back to null (no filter).
+    setSelectedBurstIds(
+      newChecked.length === allBurstIds.length ? null : newChecked,
+    );
+  }
   return (
     <div style={{ marginTop: 12 }}>
       <div className="muted">
@@ -283,6 +311,46 @@ function ResultsPanel({
                 </li>
               );
             })}
+          </ul>
+        </>
+      )}
+
+      {burstCounts.length > 1 && (
+        <>
+          <h2>Bursts</h2>
+          <p className="muted">
+            Select which bursts to include in the job.
+            {selectedBurstIds !== null && (
+              <>
+                {" "}
+                <button
+                  className="secondary"
+                  style={{ fontSize: 11, padding: "1px 6px" }}
+                  onClick={() => setSelectedBurstIds(null)}
+                >
+                  select all
+                </button>
+              </>
+            )}
+          </p>
+          <ul className="burst-list">
+            {burstCounts.map(([id, count]) => (
+              <li
+                key={id}
+                className={"burst-item" + (isChecked(id) ? " selected" : "")}
+                onClick={() => toggleBurst(id)}
+                title={isChecked(id) ? "Click to exclude" : "Click to include"}
+              >
+                <input
+                  type="checkbox"
+                  checked={isChecked(id)}
+                  onChange={() => toggleBurst(id)}
+                  onClick={(e) => e.stopPropagation()}
+                />
+                <span className="burst-id">{id}</span>
+                <span className="burst-count">{count}</span>
+              </li>
+            ))}
           </ul>
         </>
       )}

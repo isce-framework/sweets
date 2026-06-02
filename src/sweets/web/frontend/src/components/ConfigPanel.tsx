@@ -64,19 +64,8 @@ const IFG_UI_SCHEMA: UiSchema = {
   },
   pol_type: { "ui:help": "Only honored for the SAFE / BurstSearch path." },
   overwrite: { "ui:help": "Re-run steps even if outputs already exist." },
-  network: {
-    "ui:help":
-      "Interferogram network: max_bandwidth (nearest-N), reference_date, or max_temporal_baseline.",
-    "ui:options": { label: false },
-  },
-  crossmul: {
-    "ui:help": "Multilook factors and filter type for crossmul.",
-    "ui:options": { label: false },
-  },
-  unwrap: {
-    "ui:help": "Unwrapping options. Set run_unwrap: false to skip.",
-    "ui:options": { label: false },
-  },
+  // No label:false here — RJSF renders the legend title above the fieldset
+  // by default, which is correct. ui:help would appear below the block.
 };
 
 function pickFields(schema: RJSFSchema, fields: string[]): RJSFSchema {
@@ -96,23 +85,47 @@ function pickFields(schema: RJSFSchema, fields: string[]): RJSFSchema {
   return { ...schema, properties: props, required };
 }
 
-// Pydantic emits `tuple[float, float]` as JSON Schema 2020-12, which uses
-// `prefixItems` for per-position element schemas. RJSF v5 + ajv8 only know
-// how to render `items` (draft-7 / array-of-schemas style), so we rewrite
-// the schema in place.
-function rewriteTuplesInPlace(node: unknown): void {
+// Rewrite Pydantic JSON Schema 2020-12 constructs that RJSF v5 can't render:
+//
+// 1. prefixItems (fixed-length tuples) → items  (RJSF only knows draft-7 style)
+// 2. anyOf: [T, {type:"null"}]  → T             (Optional[X] renders as a
+//    schema-picker dropdown instead of a plain X widget without this)
+function rewriteSchemaInPlace(node: unknown): void {
   if (node == null || typeof node !== "object") return;
   if (Array.isArray(node)) {
-    for (const child of node) rewriteTuplesInPlace(child);
+    for (const child of node) rewriteSchemaInPlace(child);
     return;
   }
   const obj = node as Record<string, unknown>;
+
+  // 1. tuple rewrite
   if (Array.isArray(obj.prefixItems) && obj.items == null) {
     obj.items = obj.prefixItems;
     delete obj.prefixItems;
   }
+
+  // 2. nullable union collapse: anyOf: [T, null] → T
+  if (Array.isArray(obj.anyOf)) {
+    const variants = obj.anyOf as unknown[];
+    const nonNull = variants.filter(
+      (s) =>
+        !(
+          typeof s === "object" &&
+          s !== null &&
+          (s as Record<string, unknown>).type === "null"
+        ),
+    );
+    if (nonNull.length < variants.length && nonNull.length === 1) {
+      const inner = nonNull[0] as Record<string, unknown>;
+      for (const [k, v] of Object.entries(inner)) {
+        if (!(k in obj)) obj[k] = v;
+      }
+      delete obj.anyOf;
+    }
+  }
+
   for (const key of Object.keys(obj)) {
-    rewriteTuplesInPlace(obj[key]);
+    rewriteSchemaInPlace(obj[key]);
   }
 }
 
@@ -122,6 +135,7 @@ function buildSearch(
   source: SourceKind,
   bbox: [number, number, number, number],
   sp: SearchParams,
+  burstIds: string[] | null,
 ): { search: Record<string, unknown> } | { error: string } {
   const search: Record<string, unknown> = { kind: source, bbox };
   if (!sp.start || !sp.end) {
@@ -136,6 +150,7 @@ function buildSearch(
     search.track = Number(sp.track);
   } else if (source === "opera-cslc") {
     if (sp.track) search.track = Number(sp.track);
+    if (burstIds?.length) search.burst_ids = burstIds;
   } else if (source === "nisar-gslc") {
     if (sp.track) search.track = Number(sp.track);
     if (sp.frame) search.frame = Number(sp.frame);
@@ -153,7 +168,7 @@ export function ConfigPanel() {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const { bbox, source, searchParams, setTab, setSelectedJobId } =
+  const { bbox, source, searchParams, selectedBurstIds, setTab, setSelectedJobId } =
     useAppState();
 
   // Fetch both schemas once on mount.
@@ -161,7 +176,7 @@ export function ConfigPanel() {
     api
       .schema()
       .then((s) => {
-        rewriteTuplesInPlace(s);
+        rewriteSchemaInPlace(s);
         setSchemas((prev) => ({ ...prev, displacement: s as RJSFSchema }));
       })
       .catch((e) => setError(String(e)));
@@ -169,7 +184,7 @@ export function ConfigPanel() {
     api
       .ifgSchema()
       .then((s) => {
-        rewriteTuplesInPlace(s);
+        rewriteSchemaInPlace(s);
         setSchemas((prev) => ({ ...prev, interferogram: s as RJSFSchema }));
       })
       .catch((e) => setError(String(e)));
@@ -207,7 +222,7 @@ export function ConfigPanel() {
       setError("No AOI set. Draw one on the Search tab first.");
       return;
     }
-    const built = buildSearch(source, bbox, searchParams);
+    const built = buildSearch(source, bbox, searchParams, selectedBurstIds);
     if ("error" in built) {
       setError(built.error);
       return;

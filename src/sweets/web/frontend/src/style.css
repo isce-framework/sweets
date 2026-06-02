@@ -253,6 +253,54 @@ button.danger {
   font-size: 11px;
 }
 
+.burst-list {
+  list-style: none;
+  padding: 0;
+  margin: 4px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.burst-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.burst-item:hover {
+  border-color: var(--accent);
+}
+
+.burst-item.selected {
+  border-color: var(--accent);
+  background: #1f3654;
+}
+
+.burst-item input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+  cursor: pointer;
+}
+
+.burst-id {
+  font-family: var(--mono);
+  color: var(--text);
+  flex: 1;
+}
+
+.burst-count {
+  font-family: var(--mono);
+  color: var(--muted);
+  font-size: 11px;
+}
+
 .granule-list {
   max-height: 320px;
   overflow-y: auto;
