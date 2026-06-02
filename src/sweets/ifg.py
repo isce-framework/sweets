@@ -926,16 +926,18 @@ def _burst_id_from_gslc(path: Path) -> str:
 
 
 def _date_from_gslc(path: Path) -> str:
-    """Extract YYYYMMDD date from a COMPASS GSLC filename.
+    """Extract YYYYMMDD date from a GSLC filename.
 
-    e.g. ``t078_165578_iw3_20221029.h5`` -> ``"20221029"``
-    Also handles OPERA filenames (underscore-delimited date field).
+    For COMPASS files (``t078_165578_iw3_20221029.h5``) the date is the
+    last ``_``-delimited 8-digit token.  For OPERA CSLCs the acquisition
+    date is embedded as ``20240101T232835Z``; ``opera_utils.get_dates``
+    handles both formats and we take the first (earliest) date found.
     """
-    stem = path.stem
-    parts = stem.split("_")
-    for part in reversed(parts):
-        if len(part) == 8 and part.isdigit():
-            return part
+    from opera_utils import get_dates
+
+    dates = get_dates(path)
+    if dates:
+        return dates[0].strftime("%Y%m%d")
     msg = f"Cannot extract YYYYMMDD date from GSLC filename: {path.name}"
     raise ValueError(msg)
 

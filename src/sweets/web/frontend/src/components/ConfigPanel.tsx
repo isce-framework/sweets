@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Form from "@rjsf/core";
 import type { RJSFSchema, UiSchema } from "@rjsf/utils";
+import { getDefaultFormState } from "@rjsf/utils";
 import validator from "@rjsf/validator-ajv8";
 import { api } from "../api";
 import { useAppState } from "../state";
@@ -42,6 +43,14 @@ const IFG_ADVANCED_FIELDS = [
   "threads_per_worker",
 ];
 
+// Within the IFG unwrap sub-schema, hide the advanced SNAPHU tile knobs
+// (snaphu_ntiles, snaphu_tile_overlap) from the basic view — they render
+// poorly because Union[tuple,Literal] can't be represented as a simple widget.
+const IFG_UI_SCHEMA_UNWRAP_ADVANCED: UiSchema = {
+  snaphu_ntiles: { "ui:widget": "hidden" },
+  snaphu_tile_overlap: { "ui:widget": "hidden" },
+};
+
 const DISPLACEMENT_UI_SCHEMA: UiSchema = {
   work_dir: { "ui:help": "Root output directory. Created if missing." },
   slc_posting: {
@@ -66,6 +75,7 @@ const IFG_UI_SCHEMA: UiSchema = {
   overwrite: { "ui:help": "Re-run steps even if outputs already exist." },
   // No label:false here — RJSF renders the legend title above the fieldset
   // by default, which is correct. ui:help would appear below the block.
+  unwrap: IFG_UI_SCHEMA_UNWRAP_ADVANCED,
 };
 
 function pickFields(schema: RJSFSchema, fields: string[]): RJSFSchema {
@@ -180,13 +190,25 @@ export function ConfigPanel() {
   const { bbox, source, searchParams, selectedBurstIds, setTab, setSelectedJobId } =
     useAppState();
 
+  function applyDefaults(schema: RJSFSchema): Record<string, unknown> {
+    return (
+      getDefaultFormState(validator, schema, {}, schema) as Record<
+        string,
+        unknown
+      > ?? {}
+    );
+  }
+
   // Fetch both schemas once on mount.
   useEffect(() => {
     api
       .schema()
       .then((s) => {
         rewriteSchemaInPlace(s);
-        setSchemas((prev) => ({ ...prev, displacement: s as RJSFSchema }));
+        const schema = s as RJSFSchema;
+        setSchemas((prev) => ({ ...prev, displacement: schema }));
+        if (workflowType === "displacement")
+          setFormData(applyDefaults(schema));
       })
       .catch((e) => setError(String(e)));
 
@@ -194,15 +216,19 @@ export function ConfigPanel() {
       .ifgSchema()
       .then((s) => {
         rewriteSchemaInPlace(s);
-        setSchemas((prev) => ({ ...prev, interferogram: s as RJSFSchema }));
+        const schema = s as RJSFSchema;
+        setSchemas((prev) => ({ ...prev, interferogram: schema }));
+        if (workflowType === "interferogram")
+          setFormData(applyDefaults(schema));
       })
       .catch((e) => setError(String(e)));
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Reset form data when workflow type changes.
+  // Reset form data (with defaults) when workflow type changes.
   function switchWorkflowType(t: WorkflowType) {
     setWorkflowType(t);
-    setFormData({});
+    const s = schemas[t];
+    setFormData(s ? applyDefaults(s) : {});
     setShowAdvanced(false);
   }
 
