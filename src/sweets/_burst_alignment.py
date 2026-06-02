@@ -46,6 +46,7 @@ Ported from ``dolphin.burst_alignment`` (feat/burst-alignment branch).
 from __future__ import annotations
 
 import os.path
+import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -899,6 +900,9 @@ def _build_output_paths(
     for p, parent in zip(in_paths, abs_parents, strict=False):
         rel = os.path.relpath(parent, common) if common else parent
         prefix = rel.replace(os.sep, "_").strip("_") or "burst"
+        # Strip YYYYMMDD date components so dates don't appear twice in the
+        # output stem (once from the directory structure, once from the stem).
+        prefix = re.sub(r"_?\d{8}", "", prefix).strip("_") or "burst"
         ext = ".tif" if p.suffix.lower() == ".vrt" else p.suffix
         out_paths.append(out_dir / f"{prefix}__{p.stem}{suffix}{ext}")
     return out_paths
