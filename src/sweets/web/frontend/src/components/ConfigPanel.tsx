@@ -178,13 +178,28 @@ function buildSearch(
   return { search };
 }
 
+const DEFAULT_JOB_NAME = "sweets-job";
+
+function timestamp(): string {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return (
+    `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}` +
+    `-${pad(d.getHours())}${pad(d.getMinutes())}`
+  );
+}
+
+function autoWorkDir(jobName: string): string {
+  return `~/sweets-jobs/${jobName}-${timestamp()}`;
+}
+
 export function ConfigPanel() {
   const [workflowType, setWorkflowType] = useState<WorkflowType>("displacement");
   const [schemas, setSchemas] = useState<
     Partial<Record<WorkflowType, RJSFSchema>>
   >({});
   const [formData, setFormData] = useState<Record<string, unknown>>({});
-  const [name, setName] = useState("sweets-job");
+  const [name, setName] = useState(DEFAULT_JOB_NAME);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -198,16 +213,18 @@ export function ConfigPanel() {
   function applyDefaults(
     fullSchema: RJSFSchema,
     fields: string[],
+    jobName: string = name,
   ): Record<string, unknown> {
     const visible = pickFields(fullSchema, fields);
-    return (
+    const defaults =
       (getDefaultFormState(
         validator,
         visible,
         {},
         fullSchema,
-      ) as Record<string, unknown>) ?? {}
-    );
+      ) as Record<string, unknown>) ?? {};
+    defaults.work_dir = autoWorkDir(jobName);
+    return defaults;
   }
 
   // Fetch both schemas once on mount.
@@ -329,7 +346,20 @@ export function ConfigPanel() {
       <div className="config-grid">
         <label className="config-name">
           Job name
-          <input value={name} onChange={(e) => setName(e.target.value)} />
+          <input
+            value={name}
+            onChange={(e) => {
+              const next = e.target.value;
+              setName(next);
+              // Keep work_dir in sync as long as the user hasn't manually changed it.
+              setFormData((prev) => {
+                if (prev.work_dir === autoWorkDir(name)) {
+                  return { ...prev, work_dir: autoWorkDir(next) };
+                }
+                return prev;
+              });
+            }}
+          />
         </label>
 
         <div className="config-workflow-type">

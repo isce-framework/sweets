@@ -611,8 +611,8 @@ def save_ifg_qa_metrics(
             continue
         metrics.append(
             {
-                "pair": coh_f.parent.name,
-                "burst": coh_f.parent.parent.name,
+                "pair": coh_f.stem.replace("_coherence", ""),
+                "burst": coh_f.parent.name,
                 "mean_coh": float(np.nanmean(coh)),
                 "median_coh": float(np.nanmedian(coh)),
                 "valid_frac": float(valid.mean()),
