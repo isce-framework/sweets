@@ -35,6 +35,7 @@ MANIFEST_GLOBS: list[tuple[str, str]] = [
     ("dem", "dem.tif"),
     ("watermask", "watermask.tif"),
     ("config", "sweets_config.yaml"),
+    ("config", "sweets_ifg_config.yaml"),
     ("report", "sweets_report.html"),
     ("gslc", "gslcs/**/t*.h5"),
     ("opera-cslc", "data/OPERA_L2_CSLC-S1_*.h5"),
@@ -43,6 +44,12 @@ MANIFEST_GLOBS: list[tuple[str, str]] = [
     ("dolphin-unwrapped", "dolphin/unwrapped/*.tif"),
     ("dolphin-timeseries", "dolphin/timeseries/*.tif"),
     ("dolphin-velocity", "dolphin/timeseries/velocity.tif"),
+    # IFG workflow outputs
+    ("ifg-phase", "interferograms/**/*_wrapped_phase.tif"),
+    ("ifg-coherence", "interferograms/**/*_coherence.tif"),
+    ("ifg-unwrapped", "interferograms/**/unwrapped/*.tif"),
+    ("ifg-qa", "interferograms/ifg_qa.json"),
+    ("ifg-qa-plot", "ifg_qa.png"),
 ]
 
 
@@ -117,6 +124,24 @@ def bowser_view(
     work_dir = _resolve_work_dir(job)
     if work_dir is None:
         raise HTTPException(400, "Job has no resolved work_dir")
+
+    # IFG jobs produce interferograms/, not dolphin/ — bowser doesn't apply.
+    cfg = job.config or {}
+    if "crossmul" in cfg:
+        ifg_dir = work_dir / "interferograms"
+        return {
+            "job_id": job_id,
+            "dolphin_dir": str(ifg_dir),
+            "command": f"open {ifg_dir}",
+            "url": None,
+            "ran": False,
+            "stdout": "",
+            "stderr": (
+                f"Bowser is for dolphin displacement outputs. "
+                f"IFG results are in: {ifg_dir}"
+            ),
+        }
+
     dolphin_dir = work_dir / "dolphin"
     cmd = f"bowser setup-dolphin {dolphin_dir}"
 

@@ -106,7 +106,7 @@ function JobDetail({ job, onChange }: { job: Job; onChange: () => void }) {
         onStep={(s) => setLiveStep((prev) => (s > prev ? s : prev))}
       />
       <JobManifest jobId={job.id} />
-      <BowserButton jobId={job.id} />
+      <BowserButton jobId={job.id} isIfg={"crossmul" in (job.config ?? {})} />
     </>
   );
 }
@@ -257,7 +257,7 @@ function JobManifest({ jobId }: { jobId: number }) {
   );
 }
 
-function BowserButton({ jobId }: { jobId: number }) {
+function BowserButton({ jobId, isIfg }: { jobId: number; isIfg: boolean }) {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<BowserHandoff | null>(null);
 
@@ -270,6 +270,21 @@ function BowserButton({ jobId }: { jobId: number }) {
     } finally {
       setBusy(false);
     }
+  }
+
+  if (isIfg) {
+    return (
+      <>
+        <h2>Results directory</h2>
+        {result ? (
+          <code className="muted">{result.dolphin_dir}</code>
+        ) : (
+          <button onClick={() => go(false)} disabled={busy}>
+            {busy ? "..." : "Show path"}
+          </button>
+        )}
+      </>
+    );
   }
 
   return (
