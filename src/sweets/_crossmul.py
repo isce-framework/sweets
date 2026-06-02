@@ -2,7 +2,12 @@
 
 Reads geocoded SLCs (COMPASS HDF5 with ``/data/VV`` subdataset) in
 azimuth blocks, cross-multiplies, multilooks with boxcar or Gaussian
-filtering, and writes wrapped-phase and coherence GeoTIFFs.
+filtering, and writes complex interferogram and coherence GeoTIFFs.
+
+Saving the complex interferogram (not wrapped phase) is deliberate: when
+burst outputs are later stitched, GDAL interpolates real and imaginary
+parts independently, which is correct.  Wrapped phase is derived *after*
+stitching so that interpolation never crosses a ±π discontinuity.
 
 The implementation is pure NumPy / SciPy — no JAX or ISCE3 signal
 dependency — so it runs on any machine where dolphin is installed.
@@ -198,20 +203,23 @@ def run_crossmul(
 
     Returns
     -------
-    phase_path, coherence_path : tuple[Path, Path]
-        Wrapped phase (radians, float32) and coherence (float32) GeoTIFFs.
+    ifg_path, coherence_path : tuple[Path, Path]
+        Complex interferogram (complex64) and coherence (float32) GeoTIFFs.
+        Wrapped phase is *not* saved here; derive it with ``np.angle()``
+        after any stitching step so interpolation never crosses a ±π
+        discontinuity.
 
     """
     if options is None:
         options = CrossmulOptions()
     pair_dir.mkdir(parents=True, exist_ok=True)
 
-    phase_path = pair_dir / f"{date1}_{date2}_wrapped_phase.tif"
+    ifg_path = pair_dir / f"{date1}_{date2}_ifg.tif"
     coh_path = pair_dir / f"{date1}_{date2}_coherence.tif"
 
-    if phase_path.exists() and coh_path.exists():
+    if ifg_path.exists() and coh_path.exists():
         logger.info(f"Pair {date1}_{date2} already exists; skipping crossmul.")
-        return phase_path, coh_path
+        return ifg_path, coh_path
 
     ref_fmt = format_nc_filename(str(ref_file), subdataset)
     sec_fmt = format_nc_filename(str(sec_file), subdataset)
@@ -225,17 +233,18 @@ def run_crossmul(
     out_ncols = ncols // rg_looks
     out_gt = _output_geotransform(gt, az_looks, rg_looks)
 
-    # Create output files (empty)
+    # Create output files (empty).  Complex nodata = 0+0j; invalid pixels are
+    # identified by coherence == 0 rather than a NaN sentinel.
     write_arr(
         arr=None,
-        output_name=phase_path,
+        output_name=ifg_path,
         shape=(out_nrows, out_ncols),
-        dtype=np.float32,
+        dtype=np.complex64,
         driver="GTiff",
         options=_GTIFF_OPTIONS,
         geotransform=list(out_gt),
         projection=crs,
-        nodata=float("nan"),
+        nodata=0,
     )
     write_arr(
         arr=None,
@@ -274,19 +283,18 @@ def run_crossmul(
         sec_ml = _multilook(sec_power, options.looks, options.filter_type)
 
         coh_block = _compute_coherence(ifg_ml, ref_ml, sec_ml)
-        phase_block = np.angle(ifg_ml).astype(np.float32)
+        ifg_block = ifg_ml.astype(np.complex64)
 
-        # NaN pixels where both SLCs had no data
+        # Zero out pixels where both SLCs had no data
         both_nan = _multilook(
             (ref_nan | sec_nan).astype(np.float32), options.looks, options.filter_type
         )
-        # If the multilooked "nan fraction" is > 0.5, mark output as NaN
         nodata_mask = both_nan > 0.5
-        phase_block[nodata_mask] = np.nan
+        ifg_block[nodata_mask] = 0 + 0j
         coh_block[nodata_mask] = np.nan
 
         n_out = actual_in_rows // az_looks
-        write_block(phase_block[:n_out], phase_path, row_start=out_row, col_start=0)
+        write_block(ifg_block[:n_out], ifg_path, row_start=out_row, col_start=0)
         write_block(coh_block[:n_out], coh_path, row_start=out_row, col_start=0)
         out_row += n_out
 
@@ -294,4 +302,4 @@ def run_crossmul(
         f"Crossmul {date1}/{date2}: {out_nrows}x{out_ncols} pixels"
         f" ({az_looks}x{rg_looks} looks, {options.filter_type})"
     )
-    return phase_path, coh_path
+    return ifg_path, coh_path

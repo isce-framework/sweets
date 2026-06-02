@@ -791,7 +791,9 @@ class IfgWorkflow(YamlModel):
         from dolphin.unwrap import run as dolphin_unwrap
         from dolphin.workflows import UnwrapOptions
 
-        phase_files = [p for p, _ in ifg_products]
+        # Derive wrapped-phase files from complex IFGs if needed (the stitched
+        # path already produces _wrapped_phase.tif; the per-burst path does not).
+        phase_files = [_ensure_wrapped_phase(p) for p, _ in ifg_products]
         coh_files = [c for _, c in ifg_products]
 
         unw_dir = self.work_dir / "unwrapped"
@@ -855,7 +857,7 @@ class IfgWorkflow(YamlModel):
         stitch_dir = self.ifg_dir / "stitched"
         stitch_dir.mkdir(parents=True, exist_ok=True)
 
-        phase_files = [p for p, _ in ifg_products]
+        ifg_files = [p for p, _ in ifg_products]
         coh_files = [c for _, c in ifg_products]
 
         from dolphin._types import Bbox
@@ -877,21 +879,24 @@ class IfgWorkflow(YamlModel):
                 raise ImportError(msg) from e
             align_dir = stitch_dir / "burst_aligned"
             align_dir.mkdir(parents=True, exist_ok=True)
-            logger.info("Running burst alignment on wrapped-phase files...")
-            phase_files, _ = align_bursts(
-                phase_files,
+            logger.info("Running burst alignment on complex IFG files...")
+            ifg_files, _ = align_bursts(
+                ifg_files,
                 align_dir,
                 degree=self.stitch.burst_align_degree,
             )
 
         logger.info(
-            f"Stitching {len(phase_files)} per-burst interferogram pairs"
+            f"Stitching {len(ifg_files)} per-burst interferogram pairs"
             + (f" cropped to bbox {self.bbox}" if out_bounds else "")
         )
-        phase_map = merge_by_date(
-            phase_files,
+        # Stitch complex IFGs first — GDAL interpolates real+imag independently,
+        # which is correct.  Wrapped phase is derived after so interpolation
+        # never crosses a ±π discontinuity.
+        ifg_map = merge_by_date(
+            ifg_files,
             output_dir=stitch_dir,
-            output_suffix="_wrapped_phase.tif",
+            output_suffix="_ifg.tif",
             out_bounds=out_bounds,
             out_bounds_epsg=4326 if out_bounds else None,
             overwrite=self.overwrite,
@@ -905,12 +910,14 @@ class IfgWorkflow(YamlModel):
             overwrite=self.overwrite,
         )
 
-        # Re-pair stitched outputs by matching date-tuple keys
+        # Derive wrapped-phase GeoTIFFs from the stitched complex IFGs.
         stitched: list[tuple[Path, Path]] = []
-        for date_key, phase_path in sorted(phase_map.items()):
+        for date_key, ifg_path in sorted(ifg_map.items()):
             coh_path = coh_map.get(date_key)
-            if coh_path is not None:
-                stitched.append((phase_path, coh_path))
+            if coh_path is None:
+                continue
+            phase_path = _derive_wrapped_phase(ifg_path)
+            stitched.append((phase_path, coh_path))
         logger.info(f"Stitched {len(stitched)} interferogram pair(s) to {stitch_dir}")
         return stitched
 
@@ -1084,19 +1091,59 @@ def _date_from_gslc(path: Path) -> str:
     raise ValueError(msg)
 
 
-def _collect_existing_ifg_products(ifg_dir: Path) -> list[tuple[Path, Path]]:
-    """Collect already-produced (phase, coherence) pairs from ``ifg_dir``.
+def _derive_wrapped_phase(ifg_path: Path) -> Path:
+    """Write ``_wrapped_phase.tif`` alongside a complex ``_ifg.tif``.
 
-    Handles both flat ``<ifg_dir>/<date1>_<date2>/`` and burst-grouped
-    ``<ifg_dir>/<burst_id>/<date1>_<date2>/`` layouts.
+    Idempotent: returns the existing file if already present.
+    """
+    import numpy as np
+    from dolphin.io import load_gdal, write_arr
+    from osgeo import gdal
+
+    phase_path = Path(str(ifg_path).replace("_ifg.tif", "_wrapped_phase.tif"))
+    if phase_path.exists():
+        return phase_path
+
+    ds = gdal.Open(str(ifg_path))
+    gt = ds.GetGeoTransform()
+    crs = ds.GetProjection()
+    ds = None
+
+    ifg = load_gdal(ifg_path)
+    phase = np.angle(ifg).astype(np.float32)
+    phase[ifg == 0] = np.nan  # propagate nodata
+
+    write_arr(
+        arr=phase,
+        output_name=phase_path,
+        like_filename=ifg_path,
+        dtype=np.float32,
+        driver="GTiff",
+        geotransform=list(gt),
+        projection=crs,
+        nodata=float("nan"),
+    )
+    return phase_path
+
+
+def _ensure_wrapped_phase(ifg_path: Path) -> Path:
+    """Return the wrapped-phase path for an IFG, deriving it if needed."""
+    if "_ifg.tif" in ifg_path.name:
+        return _derive_wrapped_phase(ifg_path)
+    return ifg_path
+
+
+def _collect_existing_ifg_products(ifg_dir: Path) -> list[tuple[Path, Path]]:
+    """Collect already-produced (ifg, coherence) pairs from ``ifg_dir``.
+
+    Handles both flat ``<ifg_dir>/`` and burst-grouped
+    ``<ifg_dir>/<burst_id>/`` layouts.
     """
     products: list[tuple[Path, Path]] = []
-    for phase_f in sorted(ifg_dir.rglob("*_wrapped_phase.tif")):
-        coh_f = phase_f.parent / phase_f.name.replace(
-            "_wrapped_phase.tif", "_coherence.tif"
-        )
+    for ifg_f in sorted(ifg_dir.rglob("*_ifg.tif")):
+        coh_f = ifg_f.parent / ifg_f.name.replace("_ifg.tif", "_coherence.tif")
         if coh_f.exists():
-            products.append((phase_f, coh_f))
+            products.append((ifg_f, coh_f))
     return products
 
 

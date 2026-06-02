@@ -45,6 +45,7 @@ MANIFEST_GLOBS: list[tuple[str, str]] = [
     ("dolphin-timeseries", "dolphin/timeseries/*.tif"),
     ("dolphin-velocity", "dolphin/timeseries/velocity.tif"),
     # IFG workflow outputs
+    ("ifg-complex", "interferograms/**/*_ifg.tif"),
     ("ifg-phase", "interferograms/**/*_wrapped_phase.tif"),
     ("ifg-coherence", "interferograms/**/*_coherence.tif"),
     ("ifg-unwrapped", "interferograms/**/unwrapped/*.tif"),

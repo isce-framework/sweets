@@ -504,8 +504,11 @@ def plot_ifg_pairs(
 
     ifg_dir = Path(ifg_dir)
     phase_files = sorted(ifg_dir.rglob("*_wrapped_phase.tif"))[:max_pairs]
+    # Fall back to complex IFGs (per-burst outputs before stitching).
     if not phase_files:
-        raise FileNotFoundError(f"No wrapped-phase files found under {ifg_dir}")
+        phase_files = sorted(ifg_dir.rglob("*_ifg.tif"))[:max_pairs]
+    if not phase_files:
+        raise FileNotFoundError(f"No interferogram files found under {ifg_dir}")
 
     n = len(phase_files)
     ncols = min(n, 3)
@@ -518,15 +521,18 @@ def plot_ifg_pairs(
 
     stats: list[dict] = []
     for i, phase_f in enumerate(phase_files):
+        is_complex = phase_f.name.endswith("_ifg.tif")
+        coh_suffix = "_coherence.tif"
         coh_f = phase_f.parent / phase_f.name.replace(
-            "_wrapped_phase.tif", "_coherence.tif"
+            "_ifg.tif" if is_complex else "_wrapped_phase.tif", coh_suffix
         )
         row = i // ncols
         col = (i % ncols) * 2
 
-        pair_tag = phase_f.parent.name  # e.g. 20250725_20250806
+        pair_tag = phase_f.stem.replace("_wrapped_phase", "").replace("_ifg", "")
 
-        phase_data = dolph_io.load_gdal(phase_f, subsample_factor=subsample)
+        raw = dolph_io.load_gdal(phase_f, subsample_factor=subsample)
+        phase_data = np.angle(raw).astype(np.float32) if is_complex else raw
         ax_p = axes[row][col]
         im_p = ax_p.imshow(
             phase_data,
