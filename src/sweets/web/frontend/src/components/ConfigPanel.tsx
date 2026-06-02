@@ -190,12 +190,22 @@ export function ConfigPanel() {
   const { bbox, source, searchParams, selectedBurstIds, setTab, setSelectedJobId } =
     useAppState();
 
-  function applyDefaults(schema: RJSFSchema): Record<string, unknown> {
+  // Compute defaults only for the fields in `fields`, using the full schema
+  // as rootSchema so $refs resolve correctly. This avoids extra keys
+  // (bbox, search, orbit_dir…) bleeding into formData and triggering RJSF's
+  // additionalProperties widget for fields not in the visible schema.
+  function applyDefaults(
+    fullSchema: RJSFSchema,
+    fields: string[],
+  ): Record<string, unknown> {
+    const visible = pickFields(fullSchema, fields);
     return (
-      getDefaultFormState(validator, schema, {}, schema) as Record<
-        string,
-        unknown
-      > ?? {}
+      (getDefaultFormState(
+        validator,
+        visible,
+        {},
+        fullSchema,
+      ) as Record<string, unknown>) ?? {}
     );
   }
 
@@ -208,7 +218,7 @@ export function ConfigPanel() {
         const schema = s as RJSFSchema;
         setSchemas((prev) => ({ ...prev, displacement: schema }));
         if (workflowType === "displacement")
-          setFormData(applyDefaults(schema));
+          setFormData(applyDefaults(schema, DISPLACEMENT_BASIC_FIELDS));
       })
       .catch((e) => setError(String(e)));
 
@@ -219,7 +229,7 @@ export function ConfigPanel() {
         const schema = s as RJSFSchema;
         setSchemas((prev) => ({ ...prev, interferogram: schema }));
         if (workflowType === "interferogram")
-          setFormData(applyDefaults(schema));
+          setFormData(applyDefaults(schema, IFG_BASIC_FIELDS));
       })
       .catch((e) => setError(String(e)));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -228,7 +238,9 @@ export function ConfigPanel() {
   function switchWorkflowType(t: WorkflowType) {
     setWorkflowType(t);
     const s = schemas[t];
-    setFormData(s ? applyDefaults(s) : {});
+    const fields =
+      t === "interferogram" ? IFG_BASIC_FIELDS : DISPLACEMENT_BASIC_FIELDS;
+    setFormData(s ? applyDefaults(s, fields) : {});
     setShowAdvanced(false);
   }
 
@@ -343,7 +355,17 @@ export function ConfigPanel() {
           <input
             type="checkbox"
             checked={showAdvanced}
-            onChange={(e) => setShowAdvanced(e.target.checked)}
+            onChange={(e) => {
+              const next = e.target.checked;
+              setShowAdvanced(next);
+              if (fullSchema) {
+                const fields = next ? advancedFields : basicFields;
+                setFormData((prev) => ({
+                  ...applyDefaults(fullSchema, fields),
+                  ...prev,
+                }));
+              }
+            }}
           />
           {advancedLabel}
         </label>
