@@ -34,6 +34,7 @@ const IFG_BASIC_FIELDS = [
   "overwrite",
   "network",
   "crossmul",
+  "stitch",
   "unwrap",
 ];
 const IFG_ADVANCED_FIELDS = [

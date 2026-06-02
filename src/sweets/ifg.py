@@ -154,8 +154,53 @@ class IfgUnwrapOptions(YamlModel):
     )
 
 
+class StitchOptions(YamlModel):
+    """Options for stitching per-burst interferograms into a single output.
+
+    Parameters
+    ----------
+    run_stitch : bool
+        Merge all per-burst wrapped-phase and coherence files for each
+        date pair into a single stitched GeoTIFF.
+    crop_to_bbox : bool
+        Crop the stitched output to the workflow ``bbox``.  Has no effect
+        when ``run_stitch`` is False.
+    run_burst_align : bool
+        Estimate and remove inter-burst phase offsets before stitching via
+        a least-squares constant (or planar) correction in each overlap
+        region.  Requires ``dolphin.burst_alignment`` (available on the
+        ``feat/burst-alignment`` branch of dolphin; not yet on main).
+    burst_align_degree : {0, 1}
+        Polynomial degree for burst-alignment corrections: 0 = constant
+        DC offset per burst, 1 = planar ramp (offset + x-slope + y-slope).
+    """
+
+    run_stitch: bool = Field(
+        default=True,
+        description=(
+            "Merge per-burst interferograms into one stitched GeoTIFF per"
+            " date pair.  Outputs land in <ifg_dir>/stitched/."
+        ),
+    )
+    crop_to_bbox: bool = Field(
+        default=True,
+        description="Crop stitched output to the workflow bbox.",
+    )
+    run_burst_align: bool = Field(
+        default=False,
+        description=(
+            "Estimate and remove inter-burst phase offsets before stitching."
+            " Requires dolphin.burst_alignment (feat/burst-alignment branch)."
+        ),
+    )
+    burst_align_degree: Literal[0, 1] = Field(
+        default=0,
+        description="Burst-alignment polynomial degree: 0=constant, 1=planar ramp.",
+    )
+
+
 class IfgWorkflow(YamlModel):
-    """Interferogram-only workflow: geocode + crossmul (+ optional unwrap).
+    """Interferogram-only workflow: geocode + crossmul + stitch (+ optional unwrap).
 
     Configuration is a strict subset of :class:`~sweets.core.Workflow` with
     the ``dolphin`` displacement block replaced by a lightweight crossmul +
@@ -231,6 +276,10 @@ class IfgWorkflow(YamlModel):
     unwrap: IfgUnwrapOptions = Field(
         default_factory=IfgUnwrapOptions,
         description="Optional unwrapping step.  Set `unwrap.run_unwrap = false` to skip.",
+    )
+    stitch: StitchOptions = Field(
+        default_factory=StitchOptions,
+        description="Stitch per-burst interferograms and optionally crop to bbox.",
     )
 
     n_workers: int = Field(
@@ -782,6 +831,89 @@ class IfgWorkflow(YamlModel):
         logger.info(f"Unwrapped {len(unw_files)} interferogram(s) in {unw_dir}")
         return unw_files
 
+    def _stitch_ifgs(
+        self,
+        ifg_products: list[tuple[Path, Path]],
+    ) -> list[tuple[Path, Path]]:
+        """Stitch per-burst interferograms into one file per date pair.
+
+        Parameters
+        ----------
+        ifg_products
+            Per-burst ``(wrapped_phase, coherence)`` path pairs produced by
+            :meth:`_run_ifg_network`.
+
+        Returns
+        -------
+        list[tuple[Path, Path]]
+            Stitched ``(wrapped_phase, coherence)`` path pairs in
+            ``<ifg_dir>/stitched/``.
+
+        """
+        from dolphin.stitching import merge_by_date
+
+        stitch_dir = self.ifg_dir / "stitched"
+        stitch_dir.mkdir(parents=True, exist_ok=True)
+
+        phase_files = [p for p, _ in ifg_products]
+        coh_files = [c for _, c in ifg_products]
+
+        from dolphin._types import Bbox
+
+        out_bounds: Bbox | None = (
+            Bbox(*self.bbox) if self.stitch.crop_to_bbox and self.bbox else None
+        )
+
+        if self.stitch.run_burst_align:
+            try:
+                from dolphin.burst_alignment import align_bursts
+            except ImportError as e:
+                msg = (
+                    "stitch.run_burst_align requires dolphin.burst_alignment,"
+                    " which is on the feat/burst-alignment branch of dolphin"
+                    " and not yet released. Install that branch or set"
+                    " run_burst_align: false."
+                )
+                raise ImportError(msg) from e
+            align_dir = stitch_dir / "burst_aligned"
+            align_dir.mkdir(parents=True, exist_ok=True)
+            logger.info("Running burst alignment on wrapped-phase files...")
+            phase_files, _ = align_bursts(
+                phase_files,
+                align_dir,
+                degree=self.stitch.burst_align_degree,
+            )
+
+        logger.info(
+            f"Stitching {len(phase_files)} per-burst interferogram pairs"
+            + (f" cropped to bbox {self.bbox}" if out_bounds else "")
+        )
+        phase_map = merge_by_date(
+            phase_files,
+            output_dir=stitch_dir,
+            output_suffix="_wrapped_phase.tif",
+            out_bounds=out_bounds,
+            out_bounds_epsg=4326 if out_bounds else None,
+            overwrite=self.overwrite,
+        )
+        coh_map = merge_by_date(
+            coh_files,
+            output_dir=stitch_dir,
+            output_suffix="_coherence.tif",
+            out_bounds=out_bounds,
+            out_bounds_epsg=4326 if out_bounds else None,
+            overwrite=self.overwrite,
+        )
+
+        # Re-pair stitched outputs by matching date-tuple keys
+        stitched: list[tuple[Path, Path]] = []
+        for date_key, phase_path in sorted(phase_map.items()):
+            coh_path = coh_map.get(date_key)
+            if coh_path is not None:
+                stitched.append((phase_path, coh_path))
+        logger.info(f"Stitched {len(stitched)} interferogram pair(s) to {stitch_dir}")
+        return stitched
+
     # ------------------------------------------------------------------
     # Top-level run
     # ------------------------------------------------------------------
@@ -878,10 +1010,20 @@ class IfgWorkflow(YamlModel):
         if starting_step <= 3:
             ifg_products = self._run_ifg_network(gslc_files)
         else:
-            # Re-collect existing phase/coh pairs
             ifg_products = _collect_existing_ifg_products(self.ifg_dir)
 
-        # Unwrap
+        # Stitch per-burst interferograms + optional bbox crop
+        if self.stitch.run_stitch:
+            if starting_step <= 4:
+                stitched = self._stitch_ifgs(ifg_products)
+            else:
+                stitched = _collect_existing_ifg_products(self.ifg_dir / "stitched")
+            # Unwrap the stitched products (single file per pair, smaller)
+            if self.unwrap.run_unwrap:
+                self._run_unwrap(stitched)
+            return stitched
+
+        # Unwrap per-burst products (no stitching requested)
         if self.unwrap.run_unwrap:
             self._run_unwrap(ifg_products)
 
