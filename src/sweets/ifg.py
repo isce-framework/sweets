@@ -872,16 +872,25 @@ class IfgWorkflow(YamlModel):
         )
 
         if self.stitch.run_burst_align:
+            from opera_utils import group_by_date
+
             from sweets._burst_alignment import align_bursts
 
             align_dir = stitch_dir / "burst_aligned"
             align_dir.mkdir(parents=True, exist_ok=True)
             logger.info("Running burst alignment on complex IFG files...")
-            ifg_files, _ = align_bursts(
-                ifg_files,
-                align_dir,
-                degree=self.stitch.burst_align_degree,
-            )
+            # Process each date pair's bursts independently — passing all pairs
+            # together would let the overlap detector compare same-geography
+            # bursts from different pairs and produce garbage offsets.
+            aligned: list[Path] = []
+            for _dates, group in group_by_date(ifg_files).items():
+                out, _ = align_bursts(
+                    group,
+                    align_dir,
+                    degree=self.stitch.burst_align_degree,
+                )
+                aligned.extend(out)
+            ifg_files = aligned
 
         logger.info(
             f"Stitching {len(ifg_files)} per-burst interferogram pairs"
