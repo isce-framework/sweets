@@ -104,7 +104,16 @@ function rewriteSchemaInPlace(node: unknown): void {
     delete obj.prefixItems;
   }
 
-  // 2. nullable union collapse: anyOf: [T, null] → T
+  // 2. $ref + siblings → allOf:[{$ref}] + siblings
+  // In draft-07, siblings of $ref are ignored; RJSF sees an object with no
+  // properties and renders the "add new key" button. Wrapping in allOf fixes it.
+  if (typeof obj.$ref === "string" && Object.keys(obj).length > 1) {
+    const ref = obj.$ref;
+    delete obj.$ref;
+    obj.allOf = [{ $ref: ref }];
+  }
+
+  // 3. nullable union collapse: anyOf: [T, null] → T
   if (Array.isArray(obj.anyOf)) {
     const variants = obj.anyOf as unknown[];
     const nonNull = variants.filter(
