@@ -21,6 +21,7 @@ async function http<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   schema: () => http<unknown>("/api/schema"),
+  ifgSchema: () => http<unknown>("/api/schema/ifg"),
   search: (req: SearchRequest) =>
     http<SearchResponse>("/api/search", {
       method: "POST",

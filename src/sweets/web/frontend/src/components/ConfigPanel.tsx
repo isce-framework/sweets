@@ -7,11 +7,10 @@ import { useAppState } from "../state";
 import type { SearchParams } from "../state";
 import type { SourceKind } from "../types";
 
-// Fields shown in the default "basic" view. Trimmed to the knobs that
-// actually matter when configuring a new run from the UI; everything else
-// (AOI, source, computed paths, deep dolphin/tropo internals) is either
-// surfaced elsewhere or derived from work_dir.
-const BASIC_FIELDS = [
+type WorkflowType = "displacement" | "interferogram";
+
+// Fields shown in the default "basic" view for the displacement workflow.
+const DISPLACEMENT_BASIC_FIELDS = [
   "work_dir",
   "slc_posting",
   "pol_type",
@@ -20,14 +19,30 @@ const BASIC_FIELDS = [
   "threads_per_worker",
   "overwrite",
 ];
+const DISPLACEMENT_ADVANCED_FIELDS = [
+  ...DISPLACEMENT_BASIC_FIELDS,
+  "dolphin",
+  "tropo",
+];
 
-// Same as BASIC_FIELDS plus the nested dolphin / tropo configs, shown when
-// the user flips the "Show advanced" toggle.
-const ADVANCED_FIELDS = [...BASIC_FIELDS, "dolphin", "tropo"];
+// Fields for the interferogram workflow.
+const IFG_BASIC_FIELDS = [
+  "work_dir",
+  "slc_posting",
+  "pol_type",
+  "overwrite",
+  "network",
+  "crossmul",
+  "unwrap",
+];
+const IFG_ADVANCED_FIELDS = [
+  ...IFG_BASIC_FIELDS,
+  "gpu_enabled",
+  "n_workers",
+  "threads_per_worker",
+];
 
-// Field-specific UI hints. RJSF picks reasonable widgets from the schema
-// types already; this only customizes the few cases worth tightening.
-const UI_SCHEMA: UiSchema = {
+const DISPLACEMENT_UI_SCHEMA: UiSchema = {
   work_dir: { "ui:help": "Root output directory. Created if missing." },
   slc_posting: {
     "ui:help":
@@ -37,9 +52,31 @@ const UI_SCHEMA: UiSchema = {
   n_workers: { "ui:help": "COMPASS geocoding process pool size." },
   threads_per_worker: { "ui:help": "OMP threads per geocoding worker." },
   overwrite: { "ui:help": "Re-run steps even if outputs already exist." },
-  // Nested objects rendered with a less-busy default field template.
   dolphin: { "ui:options": { label: false } },
   tropo: { "ui:options": { label: false } },
+};
+
+const IFG_UI_SCHEMA: UiSchema = {
+  work_dir: { "ui:help": "Root output directory. Created if missing." },
+  slc_posting: {
+    "ui:help":
+      "Geocoded posting (y, x) in meters. Ignored for OPERA/NISAR sources.",
+  },
+  pol_type: { "ui:help": "Only honored for the SAFE / BurstSearch path." },
+  overwrite: { "ui:help": "Re-run steps even if outputs already exist." },
+  network: {
+    "ui:help":
+      "Interferogram network: max_bandwidth (nearest-N), reference_date, or max_temporal_baseline.",
+    "ui:options": { label: false },
+  },
+  crossmul: {
+    "ui:help": "Multilook factors and filter type for crossmul.",
+    "ui:options": { label: false },
+  },
+  unwrap: {
+    "ui:help": "Unwrapping options. Set run_unwrap: false to skip.",
+    "ui:options": { label: false },
+  },
 };
 
 function pickFields(schema: RJSFSchema, fields: string[]): RJSFSchema {
@@ -62,9 +99,7 @@ function pickFields(schema: RJSFSchema, fields: string[]): RJSFSchema {
 // Pydantic emits `tuple[float, float]` as JSON Schema 2020-12, which uses
 // `prefixItems` for per-position element schemas. RJSF v5 + ajv8 only know
 // how to render `items` (draft-7 / array-of-schemas style), so we rewrite
-// the schema in place. Without this, fixed-length tuples like
-// `Workflow.slc_posting` render as a raw schema dump with the message
-// "Unsupported field schema for field …: Missing items definition".
+// the schema in place.
 function rewriteTuplesInPlace(node: unknown): void {
   if (node == null || typeof node !== "object") return;
   if (Array.isArray(node)) {
@@ -82,10 +117,7 @@ function rewriteTuplesInPlace(node: unknown): void {
 }
 
 // Build the discriminated-union `Workflow.search` dict from the shared
-// Search-tab state. Fields that the backend Workflow models would mark as
-// required (e.g. BurstSearch.start) are required here too — surface a
-// human-readable message instead of letting the job fail in the executor
-// subprocess.
+// Search-tab state.
 function buildSearch(
   source: SourceKind,
   bbox: [number, number, number, number],
@@ -112,7 +144,10 @@ function buildSearch(
 }
 
 export function ConfigPanel() {
-  const [fullSchema, setFullSchema] = useState<RJSFSchema | null>(null);
+  const [workflowType, setWorkflowType] = useState<WorkflowType>("displacement");
+  const [schemas, setSchemas] = useState<
+    Partial<Record<WorkflowType, RJSFSchema>>
+  >({});
   const [formData, setFormData] = useState<Record<string, unknown>>({});
   const [name, setName] = useState("sweets-job");
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -121,20 +156,51 @@ export function ConfigPanel() {
   const { bbox, source, searchParams, setTab, setSelectedJobId } =
     useAppState();
 
+  // Fetch both schemas once on mount.
   useEffect(() => {
     api
       .schema()
       .then((s) => {
         rewriteTuplesInPlace(s);
-        setFullSchema(s as RJSFSchema);
+        setSchemas((prev) => ({ ...prev, displacement: s as RJSFSchema }));
+      })
+      .catch((e) => setError(String(e)));
+
+    api
+      .ifgSchema()
+      .then((s) => {
+        rewriteTuplesInPlace(s);
+        setSchemas((prev) => ({ ...prev, interferogram: s as RJSFSchema }));
       })
       .catch((e) => setError(String(e)));
   }, []);
 
+  // Reset form data when workflow type changes.
+  function switchWorkflowType(t: WorkflowType) {
+    setWorkflowType(t);
+    setFormData({});
+    setShowAdvanced(false);
+  }
+
+  const fullSchema = schemas[workflowType] ?? null;
+
+  const basicFields =
+    workflowType === "interferogram" ? IFG_BASIC_FIELDS : DISPLACEMENT_BASIC_FIELDS;
+  const advancedFields =
+    workflowType === "interferogram"
+      ? IFG_ADVANCED_FIELDS
+      : DISPLACEMENT_ADVANCED_FIELDS;
+  const uiSchema =
+    workflowType === "interferogram" ? IFG_UI_SCHEMA : DISPLACEMENT_UI_SCHEMA;
+  const advancedLabel =
+    workflowType === "interferogram"
+      ? "Show advanced (workers)"
+      : "Show advanced (dolphin / tropo)";
+
   const visibleSchema = useMemo<RJSFSchema | null>(() => {
     if (!fullSchema) return null;
-    return pickFields(fullSchema, showAdvanced ? ADVANCED_FIELDS : BASIC_FIELDS);
-  }, [fullSchema, showAdvanced]);
+    return pickFields(fullSchema, showAdvanced ? advancedFields : basicFields);
+  }, [fullSchema, showAdvanced, basicFields, advancedFields]);
 
   async function submit(opts: { start: boolean }) {
     if (!bbox) {
@@ -167,7 +233,7 @@ export function ConfigPanel() {
     }
   }
 
-  if (error && !visibleSchema) return <div className="error">{error}</div>;
+  if (error && !fullSchema) return <div className="error">{error}</div>;
   if (!visibleSchema) return <p className="muted">Loading schema...</p>;
 
   const sp = searchParams;
@@ -203,19 +269,39 @@ export function ConfigPanel() {
           <input value={name} onChange={(e) => setName(e.target.value)} />
         </label>
 
+        <div className="config-workflow-type">
+          <span className="config-workflow-label">Workflow</span>
+          <div className="workflow-toggle">
+            <button
+              type="button"
+              className={workflowType === "displacement" ? "active" : "secondary"}
+              onClick={() => switchWorkflowType("displacement")}
+            >
+              Displacement
+            </button>
+            <button
+              type="button"
+              className={workflowType === "interferogram" ? "active" : "secondary"}
+              onClick={() => switchWorkflowType("interferogram")}
+            >
+              Interferogram
+            </button>
+          </div>
+        </div>
+
         <label className="config-toggle">
           <input
             type="checkbox"
             checked={showAdvanced}
             onChange={(e) => setShowAdvanced(e.target.checked)}
           />
-          Show advanced (dolphin / tropo)
+          {advancedLabel}
         </label>
       </div>
 
       <Form
         schema={visibleSchema}
-        uiSchema={UI_SCHEMA}
+        uiSchema={uiSchema}
         validator={validator}
         formData={formData}
         onChange={(e) => setFormData(e.formData as Record<string, unknown>)}
