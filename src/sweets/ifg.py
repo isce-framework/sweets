@@ -559,9 +559,14 @@ class IfgWorkflow(YamlModel):
                 self.search.download()
             existing_static = self.search.existing_static_layers()
             n_bursts = len(self.search.burst_ids or [])
-            static_complete = (n_bursts > 0 and len(existing_static) >= n_bursts) or (
-                n_bursts == 0 and existing_static
-            )
+            if n_bursts > 0:
+                # Explicit burst IDs: can compare counts exactly.
+                static_complete = len(existing_static) >= n_bursts
+            else:
+                # AOI mode: burst count is unknown without a network query.
+                # Require a full set (at least one per subdirectory file) — re-run
+                # with overwrite=True to force a fresh static-layer download.
+                static_complete = bool(existing_static)
             if not static_complete or self.overwrite:
                 self.search.download_static_layers()
             return self.search.existing_cslcs()
@@ -925,7 +930,7 @@ class IfgWorkflow(YamlModel):
             coh_path = coh_map.get(date_key)
             if coh_path is None:
                 continue
-            phase_path = _derive_wrapped_phase(ifg_path)
+            phase_path = _derive_wrapped_phase(ifg_path, overwrite=self.overwrite)
             stitched.append((phase_path, coh_path))
         logger.info(f"Stitched {len(stitched)} interferogram pair(s) to {stitch_dir}")
         return stitched
