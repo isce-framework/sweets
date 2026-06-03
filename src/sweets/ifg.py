@@ -187,7 +187,7 @@ class StitchOptions(YamlModel):
         description="Crop stitched output to the workflow bbox.",
     )
     run_burst_align: bool = Field(
-        default=False,
+        default=True,
         description=(
             "Estimate and remove inter-burst phase offsets before stitching."
             " Requires dolphin.burst_alignment (feat/burst-alignment branch)."
