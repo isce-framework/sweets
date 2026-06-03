@@ -86,8 +86,9 @@ change what you need, then proceed to **Section 2** to build the config.\
 """
 
 WIDGETS = """\
-# ── Frame 16941 defaults ──────────────────────────────────────────────────────
-_WORK_DIR = "/Volumes/WD_BLACK_SN7100_4TB/Documents/Learning/sweets-testing/sweets-f16941"
+# ── Frame 16941 defaults (change _WORK_DIR to your own output directory) ──────
+import os as _os
+_WORK_DIR = _os.path.join(_os.path.expanduser("~"), "sweets-output", "frame-16941")
 _BBOX     = (-118.2295, 34.7939, -116.5642, 35.8195)
 _START    = date(2025, 4, 1)
 _END      = date(2025, 6, 1)

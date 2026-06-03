@@ -771,6 +771,7 @@ class IfgWorkflow(YamlModel):
                     date2=date2,
                     options=self.crossmul,
                     subdataset=subdataset,
+                    overwrite=self.overwrite,
                 )
                 products.append((phase_p, coh_p))
 
@@ -798,7 +799,9 @@ class IfgWorkflow(YamlModel):
 
         # Derive wrapped-phase files from complex IFGs if needed (the stitched
         # path already produces _wrapped_phase.tif; the per-burst path does not).
-        phase_files = [_ensure_wrapped_phase(p) for p, _ in ifg_products]
+        phase_files = [
+            _ensure_wrapped_phase(p, overwrite=self.overwrite) for p, _ in ifg_products
+        ]
         coh_files = [c for _, c in ifg_products]
 
         unw_dir = self.work_dir / "unwrapped"
@@ -1097,17 +1100,17 @@ def _date_from_gslc(path: Path) -> str:
     raise ValueError(msg)
 
 
-def _derive_wrapped_phase(ifg_path: Path) -> Path:
+def _derive_wrapped_phase(ifg_path: Path, overwrite: bool = False) -> Path:
     """Write ``_wrapped_phase.tif`` alongside a complex ``_ifg.tif``.
 
-    Idempotent: returns the existing file if already present.
+    Idempotent: returns the existing file if already present and not overwriting.
     """
     import numpy as np
     from dolphin.io import load_gdal, write_arr
     from osgeo import gdal
 
     phase_path = Path(str(ifg_path).replace("_ifg.tif", "_wrapped_phase.tif"))
-    if phase_path.exists():
+    if phase_path.exists() and not overwrite:
         return phase_path
 
     ds = gdal.Open(str(ifg_path))
@@ -1132,10 +1135,10 @@ def _derive_wrapped_phase(ifg_path: Path) -> Path:
     return phase_path
 
 
-def _ensure_wrapped_phase(ifg_path: Path) -> Path:
+def _ensure_wrapped_phase(ifg_path: Path, overwrite: bool = False) -> Path:
     """Return the wrapped-phase path for an IFG, deriving it if needed."""
     if "_ifg.tif" in ifg_path.name:
-        return _derive_wrapped_phase(ifg_path)
+        return _derive_wrapped_phase(ifg_path, overwrite=overwrite)
     return ifg_path
 
 

@@ -49,6 +49,7 @@ MANIFEST_GLOBS: list[tuple[str, str]] = [
     ("ifg-phase", "interferograms/**/*_wrapped_phase.tif"),
     ("ifg-coherence", "interferograms/**/*_coherence.tif"),
     ("ifg-unwrapped", "interferograms/**/unwrapped/*.tif"),
+    ("ifg-unwrapped", "unwrapped/*.tif"),
     ("ifg-qa", "interferograms/ifg_qa.json"),
     ("ifg-qa-plot", "ifg_qa.png"),
 ]

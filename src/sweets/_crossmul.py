@@ -7,14 +7,15 @@ filtering, and writes complex interferogram and coherence GeoTIFFs.
 Saving the complex interferogram (not wrapped phase) is deliberate: when
 burst outputs are later stitched, GDAL interpolates real and imaginary
 parts independently, which is correct.  Wrapped phase is derived *after*
-stitching so that interpolation never crosses a ±π discontinuity.
+stitching so that interpolation never crosses a +/-pi discontinuity.
 
-The implementation is pure NumPy / SciPy — no JAX or ISCE3 signal
-dependency — so it runs on any machine where dolphin is installed.
+The implementation uses NumPy / SciPy with a JAX-accelerated path for
+Gaussian multilooking when JAX is available.  No ISCE3 signal dependency.
 """
 
 from __future__ import annotations
 
+import functools
 from pathlib import Path
 from typing import Literal
 
@@ -22,6 +23,13 @@ import numpy as np
 from loguru import logger
 from pydantic import BaseModel, Field
 from scipy.ndimage import gaussian_filter
+
+try:
+    import jax  # noqa: F401
+
+    _JAX_AVAILABLE = True
+except ImportError:
+    _JAX_AVAILABLE = False
 
 from dolphin.io import (
     format_nc_filename,
@@ -106,8 +114,68 @@ def _boxcar_multilook(arr: np.ndarray, looks: tuple[int, int]) -> np.ndarray:
     return arr.reshape(nrows_out, az_looks, ncols_out, rg_looks).mean(axis=(1, 3))
 
 
+def _gaussian_kernel_1d(sigma: float, truncate: float = 4.0) -> np.ndarray:
+    """Build a normalized 1-D Gaussian kernel matching scipy's gaussian_filter."""
+    radius = int(truncate * sigma + 0.5)
+    x = np.arange(-radius, radius + 1, dtype=np.float64)
+    k = np.exp(-0.5 * (x / sigma) ** 2)
+    return (k / k.sum()).astype(np.float32)
+
+
+@functools.lru_cache(maxsize=16)
+def _build_gaussian_conv_fn(
+    sigma_az: float, sigma_rg: float, az_looks: int, rg_looks: int
+):
+    """Return a JIT-compiled separable strided Gaussian conv function.
+
+    Applies the Gaussian kernel only at output sample positions (strided
+    conv) rather than filtering the full-resolution array and then
+    decimating.  For (10, 40) looks this is ~50x fewer FLOPs than the
+    scipy filter-then-decimate approach.
+
+    The output shape is exactly ``(H // az_looks, W // rg_looks)``; input
+    is clipped to a multiple of the stride before convolving.
+    """
+    import jax
+    import jax.numpy as jnp
+    from jax import lax as jax_lax
+
+    k_az = jnp.array(_gaussian_kernel_1d(sigma_az))
+    k_rg = jnp.array(_gaussian_kernel_1d(sigma_rg))
+    pad_az = len(k_az) // 2
+    pad_rg = len(k_rg) // 2
+
+    @jax.jit
+    def _conv(arr: jax.Array) -> jax.Array:
+        # arr: (H, W) real float32
+        # Clip to multiples of stride so output is exactly H//az x W//rg.
+        H, W = arr.shape
+        x = arr[: (H // az_looks) * az_looks, : (W // rg_looks) * rg_looks]
+        x = x[None, None, :, :]  # (1, 1, H_c, W_c)
+
+        # Range pass: horizontal strided conv -> (1, 1, H_c, W_c//rg_looks)
+        x = jax_lax.conv_general_dilated(
+            x,
+            k_rg[None, None, None, :],
+            window_strides=(1, rg_looks),
+            padding=((0, 0), (pad_rg, pad_rg)),
+            dimension_numbers=("NCHW", "OIHW", "NCHW"),
+        )
+        # Azimuth pass: vertical strided conv -> (1, 1, H_c//az_looks, W_c//rg_looks)
+        x = jax_lax.conv_general_dilated(
+            x,
+            k_az[None, None, :, None],
+            window_strides=(az_looks, 1),
+            padding=((pad_az, pad_az), (0, 0)),
+            dimension_numbers=("NCHW", "OIHW", "NCHW"),
+        )
+        return x[0, 0, :, :]
+
+    return _conv
+
+
 def _gaussian_multilook(arr: np.ndarray, looks: tuple[int, int]) -> np.ndarray:
-    """Gaussian multilook: convolve then decimate.
+    """Gaussian multilook: separable strided conv (JAX) or filter+decimate (scipy).
 
     Parameters
     ----------
@@ -124,14 +192,34 @@ def _gaussian_multilook(arr: np.ndarray, looks: tuple[int, int]) -> np.ndarray:
 
     """
     az_looks, rg_looks = looks
-    sigma = (az_looks / 2.0, rg_looks / 2.0)
+    sigma_az = az_looks / 2.0
+    sigma_rg = rg_looks / 2.0
+
+    if _JAX_AVAILABLE:
+        import jax.numpy as jnp
+
+        conv_fn = _build_gaussian_conv_fn(sigma_az, sigma_rg, az_looks, rg_looks)
+        if np.iscomplexobj(arr):
+            r = np.array(conv_fn(jnp.array(arr.real.astype(np.float32))))
+            i = np.array(conv_fn(jnp.array(arr.imag.astype(np.float32))))
+            return (r + 1j * i).astype(arr.dtype)
+        return np.array(conv_fn(jnp.array(arr.astype(np.float32)))).astype(arr.dtype)
+
+    # scipy fallback when JAX is unavailable.
+    # Clip to multiples of stride first so output shape == (H//az, W//rg),
+    # matching the JAX path and the write_block row allocation.
+    H, W = arr.shape
+    arr = arr[: (H // az_looks) * az_looks, : (W // rg_looks) * rg_looks]
+    sigma = (sigma_az, sigma_rg)
     if np.iscomplexobj(arr):
         filtered_r = gaussian_filter(arr.real.astype(np.float64), sigma)
         filtered_i = gaussian_filter(arr.imag.astype(np.float64), sigma)
-        filtered = (filtered_r + 1j * filtered_i).astype(arr.dtype)
-    else:
-        filtered = gaussian_filter(arr.astype(np.float64), sigma).astype(arr.dtype)
-    return filtered[::az_looks, ::rg_looks]
+        return ((filtered_r + 1j * filtered_i).astype(arr.dtype))[
+            ::az_looks, ::rg_looks
+        ]
+    return gaussian_filter(arr.astype(np.float64), sigma).astype(arr.dtype)[
+        ::az_looks, ::rg_looks
+    ]
 
 
 def _multilook(
@@ -160,16 +248,11 @@ def _output_geotransform(
 ) -> tuple[float, ...]:
     """Compute output geotransform after multilooking.
 
-    Shifts the origin by half the extra pixel so the output pixel center
-    coincides with the center of the first multilook window.
+    GDAL geotransform origins are upper-left pixel *corners*, so the output
+    corner stays at ``(x0, y0)``; only the pixel spacing scales.
     """
     x0, dx, _, y0, _, dy = input_gt
-    new_dx = dx * rg_looks
-    new_dy = dy * az_looks
-    # shift origin from corner of first input pixel to center of first output
-    new_x0 = x0 + (rg_looks - 1) / 2.0 * dx
-    new_y0 = y0 + (az_looks - 1) / 2.0 * dy
-    return (new_x0, new_dx, 0.0, new_y0, 0.0, new_dy)
+    return (x0, dx * rg_looks, 0.0, y0, 0.0, dy * az_looks)
 
 
 def run_crossmul(
@@ -181,6 +264,7 @@ def run_crossmul(
     date2: str,
     options: CrossmulOptions | None = None,
     subdataset: str = "/data/VV",
+    overwrite: bool = False,
 ) -> tuple[Path, Path]:
     """Form a multilooked wrapped interferogram and coherence from two GSLCs.
 
@@ -206,7 +290,7 @@ def run_crossmul(
     ifg_path, coherence_path : tuple[Path, Path]
         Complex interferogram (complex64) and coherence (float32) GeoTIFFs.
         Wrapped phase is *not* saved here; derive it with ``np.angle()``
-        after any stitching step so interpolation never crosses a ±π
+        after any stitching step so interpolation never crosses a +/-pi
         discontinuity.
 
     """
@@ -217,7 +301,7 @@ def run_crossmul(
     ifg_path = pair_dir / f"{date1}_{date2}_ifg.tif"
     coh_path = pair_dir / f"{date1}_{date2}_coherence.tif"
 
-    if ifg_path.exists() and coh_path.exists():
+    if ifg_path.exists() and coh_path.exists() and not overwrite:
         logger.info(f"Pair {date1}_{date2} already exists; skipping crossmul.")
         return ifg_path, coh_path
 
