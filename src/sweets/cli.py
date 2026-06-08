@@ -384,14 +384,79 @@ class RunCmd:
         workflow.run(starting_step=self.starting_step)
 
 
+@dataclass
+class IfgRunCmd:
+    """Run an interferogram workflow from a sweets_ifg_config.yaml."""
+
+    config_file: Annotated[Path, tyro.conf.Positional]
+    """Path to a sweets_ifg_config.yaml."""
+
+    starting_step: int = 1
+    """Skip earlier stages (1=download, 2=geocode, 3=crossmul)."""
+
+    def execute(self) -> None:
+        """Load the IfgWorkflow and run it."""
+        if not self.config_file.exists():
+            msg = f"config file {self.config_file} does not exist"
+            raise SystemExit(msg)
+        from sweets.ifg import IfgWorkflow
+
+        workflow = IfgWorkflow.from_yaml(self.config_file)
+        workflow.run(starting_step=self.starting_step)
+
+
+@dataclass
+class ServerCmd:
+    """Launch the sweets web UI (FastAPI backend + bundled React frontend).
+
+    Install the optional web extras first::
+
+        pip install -e ".[web]"   # or: pixi install -e <env-with-web-extras>
+
+    Then run ``sweets server`` to start uvicorn on http://localhost:8000.
+    During frontend development, run ``npm run dev`` inside
+    ``src/sweets/web/frontend/`` for hot-reloaded React on :5173 (Vite
+    proxies ``/api`` to :8000).
+    """
+
+    host: str = "127.0.0.1"
+    """Bind address. Use 0.0.0.0 to expose on the network."""
+
+    port: int = 8000
+    """TCP port."""
+
+    reload: bool = False
+    """Enable uvicorn auto-reload (development only)."""
+
+    def execute(self) -> None:
+        try:
+            import uvicorn
+        except ImportError as e:
+            msg = (
+                "sweets server requires the `web` extras. Install via:\n"
+                '    pip install -e ".[web]"\n'
+                f"(original error: {e})"
+            )
+            raise SystemExit(msg) from e
+
+        uvicorn.run(
+            "sweets.web.app:app",
+            host=self.host,
+            port=self.port,
+            reload=self.reload,
+        )
+
+
 def main() -> None:
     """Top-level CLI entry point."""
     cmd = tyro.extras.subcommand_cli_from_dict(
         {
             "config": ConfigCli,
             "run": RunCmd,
+            "ifg-run": IfgRunCmd,
             "schema": SchemaCmd,
             "report": ReportCmd,
+            "server": ServerCmd,
         },
         prog="sweets",
         description="Sentinel-1 InSAR workflow runner.",

@@ -169,3 +169,4 @@ cython_debug/
 *.egg-info
 .DS_Store
 *.pdf
+docs/ifg_workflow_executed.*

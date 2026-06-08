@@ -69,7 +69,9 @@ web = [
   "sqlmodel",
   "python-multipart",
   "websockets",
-  "titiler.core",
+  # Required by `fastapi.testclient.TestClient` (used by tests/test_web.py)
+  # and by any caller that wants to hit the sweets API from Python.
+  "httpx",
 ]
 
 [project.urls]
@@ -203,6 +205,34 @@ pytest-xdist = "*"
 pre-commit = "*"
 mypy = "*"
 
+# Web UI feature: FastAPI backend + React frontend build toolchain.
+# Layers the [project.optional-dependencies] "web" pip extras (fastapi,
+# uvicorn, sqlmodel, ...) on top of the conda-forge node/npm needed to
+# build the frontend.
+[tool.pixi.feature.web.dependencies]
+nodejs = ">=20"
+
+[tool.pixi.feature.web.pypi-dependencies]
+sweets = { path = ".", editable = true, extras = ["web"] }
+# Playwright drives the screenshot refresh; chromium binary is pulled in
+# separately via `playwright install chromium` (not a python package).
+playwright = "*"
+
+[tool.pixi.feature.web.tasks]
+# Backend with auto-reload. Use `pixi run -e web sweets-server` instead of
+# remembering the host/port flags.
+sweets-server = "sweets server --reload"
+# Frontend dev server. Vite proxies /api -> backend on :8000.
+web-dev = { cmd = "npm run dev", cwd = "src/sweets/web/frontend" }
+# Install npm deps. Run this once before web-dev / web-build.
+web-install = { cmd = "npm install", cwd = "src/sweets/web/frontend" }
+# Production build -> src/sweets/web/frontend/dist (served by FastAPI).
+web-build = { cmd = "npm run build", cwd = "src/sweets/web/frontend" }
+# Refresh docs/web/screenshots/. Builds the frontend, boots uvicorn, drives
+# Playwright through every tab, kills the server. Requires `playwright
+# install chromium` once.
+web-screenshots = "python scripts/web_screenshots.py"
+
 [tool.pixi.feature.plotting.dependencies]
 cartopy = "*"
 matplotlib = "*"
@@ -227,6 +257,13 @@ default = { features = ["test", "plotting", "cpu"], solve-group = "default" }
 test = { features = ["test", "plotting", "cpu"], solve-group = "default" }
 plotting = { features = ["plotting", "cpu"], solve-group = "default" }
 minimal = { features = ["cpu"], solve-group = "default" }
+# `web` adds the FastAPI backend + React/Vite/node toolchain on top of the
+# default scientific stack. Run `pixi install -e web` once, then `pixi run
+# -e web sweets-server` to launch uvicorn.
+web = { features = ["test", "plotting", "cpu", "web"], solve-group = "default" }
+# `all` mirrors `default` + web — a convenient catch-all for users who
+# want everything in one solve.
+all = { features = ["test", "plotting", "cpu", "web"], solve-group = "default" }
 # GPU environment: same extras as `default` but swaps isce3 -> isce3-cuda.
 # `solve-group` is deliberately separate so pixi doesn't try to reconcile
 # the CPU and GPU isce3 builds in a single resolution.
