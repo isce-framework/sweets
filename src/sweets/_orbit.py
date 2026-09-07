@@ -1,11 +1,10 @@
 from pathlib import Path
-from typing import List
 
 from eof import download
 from loguru import logger
 
 
-def download_orbits(search_path: Path, save_dir: Path) -> List[Path]:
+def download_orbits(search_path: Path, save_dir: Path) -> list[Path]:
     """Download orbit files for a given search path."""
     logger.info(f"Orbit search_path: {search_path}, save_dir: {save_dir}")
     filenames = download.main(
