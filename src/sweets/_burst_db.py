@@ -1,6 +1,5 @@
 import zipfile
 from pathlib import Path
-from typing import Optional
 
 import requests
 from loguru import logger
@@ -8,10 +7,10 @@ from loguru import logger
 from ._types import Filename
 from .utils import get_cache_dir
 
-BURST_DB_URL = "https://github.com/scottstanie/burst_db/raw/frames-with-data/data/s1-frames-9frames-5min-10max-bbox-only.gpkg.zip"  # noqa: E501
+BURST_DB_URL = "https://github.com/scottstanie/burst_db/raw/frames-with-data/data/s1-frames-9frames-5min-10max-bbox-only.gpkg.zip"
 
 
-def get_burst_db(url: str = BURST_DB_URL, out_file: Optional[Filename] = None) -> Path:
+def get_burst_db(url: str = BURST_DB_URL, out_file: Filename | None = None) -> Path:
     """Read or download the burst-db file.
 
     TODO: getting a URL to a release version of the sqlite database.

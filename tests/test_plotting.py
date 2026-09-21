@@ -12,11 +12,11 @@ import matplotlib
 
 matplotlib.use("Agg")
 
-import matplotlib as mpl  # noqa: E402
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+import numpy as np
 
-from sweets import plotting  # noqa: E402
+from sweets import plotting
 
 
 def test_oil_slick_registered_with_matplotlib() -> None:
