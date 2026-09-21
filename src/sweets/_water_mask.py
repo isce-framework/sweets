@@ -21,13 +21,11 @@ from __future__ import annotations
 from enum import Enum
 from os import fspath
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
+from loguru import logger
 from osgeo import gdal
 from scipy import ndimage
-
-from loguru import logger
 
 gdal.UseExceptions()
 
@@ -103,7 +101,7 @@ def _buffer_mask(
 def create_water_mask(
     bounds: tuple[float, float, float, float],
     output: Path,
-    resolution: Optional[float] = None,
+    resolution: float | None = None,
     buffer_meters: float = 0.0,
     water_value: WaterValue = WaterValue.ZERO,
     overwrite: bool = False,

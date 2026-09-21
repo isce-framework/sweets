@@ -29,21 +29,17 @@ import re
 import warnings
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, Optional
+from typing import Literal
 
 import h5py
 import numpy as np
 import rasterio
 import rioxarray as rxr
+from loguru import logger
 from pydantic import BaseModel, Field
 from shapely import wkt as shp_wkt
 
-from loguru import logger
-
 from ._log import log_runtime
-
-if TYPE_CHECKING:
-    pass
 
 # Sentinel-1 C-band carrier wavelength used by OPERA CSLCs and burst2safe
 # SAFEs alike.
@@ -172,7 +168,7 @@ def create_tropo_corrections(
     dem_path: Path,
     incidence_angle_path: Path,
     output_dir: Path,
-    options: Optional[TropoOptions] = None,
+    options: TropoOptions | None = None,
 ) -> list[Path]:
     """Run the OPERA tropo workflow over a stack of SLC files.
 
@@ -216,7 +212,7 @@ def create_tropo_corrections(
     )
 
 
-def _parse_tropo_filename(p: Path) -> Optional[datetime]:
+def _parse_tropo_filename(p: Path) -> datetime | None:
     """Return the datetime encoded in a tropo correction filename."""
     m = _TROPO_FILENAME_RE.match(p.name)
     if not m:
@@ -245,7 +241,7 @@ def _group_tropo_files_by_date(tropo_files: list[Path]) -> dict[str, list[Path]]
     return out
 
 
-def _mean_tropo_on_grid(tropo_files: list[Path], target) -> np.ndarray:  # noqa: ANN001
+def _mean_tropo_on_grid(tropo_files: list[Path], target) -> np.ndarray:
     """Reproject a list of tropo rasters onto `target` and return the mean.
 
     `target` is an xarray DataArray that carries the desired grid + CRS
@@ -260,7 +256,7 @@ def _mean_tropo_on_grid(tropo_files: list[Path], target) -> np.ndarray:  # noqa:
     return np.nanmean(np.stack(stack, axis=0), axis=0)
 
 
-def _ifg_dates(path: Path) -> Optional[tuple[str, str]]:
+def _ifg_dates(path: Path) -> tuple[str, str] | None:
     """Pull the (date1, date2) pair out of a `<date1>_<date2>*.tif` name."""
     m = re.match(r"(\d{8})_(\d{8})", path.name)
     if not m:
@@ -276,7 +272,7 @@ def _apply_one_pair(
     tropo_by_date: dict[str, list[Path]],
     output_path: Path,
     scale: float,
-) -> Optional[Path]:
+) -> Path | None:
     """Subtract the per-date differential tropo from one raster.
 
     ``scale`` is applied to the metres-of-LOS-delay difference before
@@ -396,7 +392,7 @@ def run_tropo_correction(
     dem_path: Path,
     incidence_angle_path: Path,
     dolphin_work_dir: Path,
-    options: Optional[TropoOptions] = None,
+    options: TropoOptions | None = None,
     wavelength: float = S1_WAVELENGTH_M,
 ) -> list[Path]:
     """Build tropo corrections + apply to dolphin's unwrapped and timeseries.

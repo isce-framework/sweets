@@ -3,7 +3,7 @@ from __future__ import annotations
 import shutil
 from os import fspath
 from pathlib import Path
-from typing import List, Literal, Optional, Tuple
+from typing import Literal
 
 import compass.s1_geocode_slc
 import compass.s1_static_layers
@@ -11,7 +11,6 @@ import journal
 import yaml  # type: ignore[import-untyped]
 from compass import s1_geocode_stack
 from compass.utils.geo_runconfig import GeoRunConfig
-
 from loguru import logger
 
 from ._types import Filename
@@ -104,7 +103,7 @@ def create_config_files(
     burst_db_file: Filename,
     dem_file: Filename,
     orbit_dir: Filename,
-    bbox: Optional[Tuple[float, ...]] = None,
+    bbox: tuple[float, ...] | None = None,
     x_posting: float = 5,
     y_posting: float = 10,
     pol_type: str = "co-pol",
@@ -113,7 +112,7 @@ def create_config_files(
     using_zipped: bool = False,
     gpu_enabled: bool = True,
     gpu_id: int = 0,
-) -> List[Path]:
+) -> list[Path]:
     """Create the geocoding config files for a stack of SLCs.
 
     Parameters
@@ -216,7 +215,7 @@ def _resolve_gpu_enabled(requested: bool) -> bool:
 
 
 def _patch_worker_settings(
-    runconfig_files: List[Path], *, gpu_enabled: bool, gpu_id: int
+    runconfig_files: list[Path], *, gpu_enabled: bool, gpu_id: int
 ) -> None:
     """Overwrite ``runconfig.groups.worker`` in each runconfig YAML.
 
