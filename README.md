@@ -75,7 +75,7 @@ Raw Sentinel-1 bursts (default):
 
 ```bash
 sweets config \
-  --bbox=-102.96 31.22 -101.91 31.56 \
+  --bbox -102.96 31.22 -101.91 31.56 \
   --start 2021-06-05 --end 2021-06-22 \
   --track 78 \
   --swaths IW2 \
@@ -90,7 +90,7 @@ Pre-made OPERA CSLCs (faster for CONUS, no COMPASS needed):
 
 ```bash
 sweets config \
-  --bbox=-102.96 31.22 -101.91 31.56 \
+  --bbox -102.96 31.22 -101.91 31.56 \
   --start 2021-06-05 --end 2021-06-22 \
   --source opera-cslc \
   --out-dir ./data \
@@ -111,7 +111,7 @@ NISAR GSLCs:
 
 ```bash
 sweets config \
-  --bbox=-121.10 36.55 -120.95 36.70 \
+  --bbox -121.10 36.55 -120.95 36.70 \
   --start 2025-10-01 --end 2025-12-15 \
   --source nisar-gslc \
   --track 42 --frame 70 \
@@ -140,9 +140,12 @@ You can also build a `Workflow` directly:
 from sweets.core import Workflow
 from sweets.download import BurstSearch
 
+bbox = (-102.96, 31.22, -101.91, 31.56)
+
 w = Workflow(
-    bbox=(-102.96, 31.22, -101.91, 31.56),
+    bbox=bbox,
     search=BurstSearch(
+        bbox=bbox,
         track=78,
         start="2021-06-05",
         end="2021-06-22",
