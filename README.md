@@ -140,9 +140,12 @@ You can also build a `Workflow` directly:
 from sweets.core import Workflow
 from sweets.download import BurstSearch
 
+bbox = (-102.96, 31.22, -101.91, 31.56)
+
 w = Workflow(
-    bbox=(-102.96, 31.22, -101.91, 31.56),
+    bbox=bbox,
     search=BurstSearch(
+        bbox=bbox,
         track=78,
         start="2021-06-05",
         end="2021-06-22",
