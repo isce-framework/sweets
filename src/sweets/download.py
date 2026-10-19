@@ -30,18 +30,18 @@ entry for ``urs.earthdata.nasa.gov``.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any, Callable, Literal, Optional, TypeVar
+from typing import Any, Literal, TypeVar
 
 from dateutil.parser import parse as parse_date
 from dolphin.workflows.config import YamlModel
+from loguru import logger
 from pydantic import ConfigDict, Field, field_validator, model_validator
 from shapely import wkt as shp_wkt
 from shapely.geometry import Polygon, box
-
-from loguru import logger
 
 from ._log import log_runtime
 
@@ -87,14 +87,14 @@ class BurstSearch(YamlModel):
         description="Directory where SAFE directories will be written.",
         validate_default=True,
     )
-    bbox: Optional[tuple[float, float, float, float]] = Field(
+    bbox: tuple[float, float, float, float] | None = Field(
         None,
         description=(
             "Area of interest as (left, bottom, right, top) in decimal degrees."
             " Either `bbox` or `wkt` must be set."
         ),
     )
-    wkt: Optional[str] = Field(
+    wkt: str | None = Field(
         None,
         description=(
             "Area of interest as a WKT polygon string (or path to a `.wkt` file)."
@@ -109,12 +109,12 @@ class BurstSearch(YamlModel):
         default_factory=datetime.now,
         description="Search end time. Defaults to now.",
     )
-    track: Optional[int] = Field(
+    track: int | None = Field(
         None,
         alias="relativeOrbit",
         description="Sentinel-1 relative orbit / track number.",
     )
-    flight_direction: Optional[FlightDirection] = Field(
+    flight_direction: FlightDirection | None = Field(
         None,
         alias="flightDirection",
         description="Restrict to ASCENDING or DESCENDING acquisitions.",
@@ -123,7 +123,7 @@ class BurstSearch(YamlModel):
         default_factory=lambda: ["VV"],
         description="Polarizations to include (e.g. ['VV'], ['VV', 'VH']).",
     )
-    swaths: Optional[list[str]] = Field(
+    swaths: list[str] | None = Field(
         None,
         description=(
             "Restrict to specific subswaths (e.g. ['IW2']). If None, all swaths"
@@ -166,7 +166,7 @@ class BurstSearch(YamlModel):
 
     @field_validator("flight_direction", mode="before")
     @classmethod
-    def _normalize_flight_direction(cls, v: Any) -> Optional[str]:
+    def _normalize_flight_direction(cls, v: Any) -> str | None:
         if v is None:
             return None
         s = str(v).upper()
@@ -184,11 +184,11 @@ class BurstSearch(YamlModel):
 
     @field_validator("swaths")
     @classmethod
-    def _upper_swaths(cls, v: Optional[list[str]]) -> Optional[list[str]]:
+    def _upper_swaths(cls, v: list[str] | None) -> list[str] | None:
         return [s.upper() for s in v] if v else v
 
     @model_validator(mode="after")
-    def _check_aoi_and_dates(self) -> "BurstSearch":
+    def _check_aoi_and_dates(self) -> BurstSearch:
         if not self.wkt and not self.bbox:
             msg = "Must provide either `bbox` or `wkt`"
             raise ValueError(msg)
@@ -335,14 +335,14 @@ class LocalSafeSearch(YamlModel):
             " one ``S1[AB]_*.SAFE`` or ``S1[AB]_*.zip`` file."
         ),
     )
-    bbox: Optional[tuple[float, float, float, float]] = Field(
+    bbox: tuple[float, float, float, float] | None = Field(
         None,
         description=(
             "Area of interest as (left, bottom, right, top) in decimal degrees."
             " Either `bbox` or `wkt` must be set."
         ),
     )
-    wkt: Optional[str] = Field(
+    wkt: str | None = Field(
         None,
         description=(
             "Area of interest as a WKT polygon string (or path to a `.wkt` file)."
@@ -362,7 +362,7 @@ class LocalSafeSearch(YamlModel):
         return Path(v).expanduser().resolve()
 
     @model_validator(mode="after")
-    def _check_aoi(self) -> "LocalSafeSearch":
+    def _check_aoi(self) -> LocalSafeSearch:
         if not self.wkt and not self.bbox:
             msg = "Must provide either `bbox` or `wkt`"
             raise ValueError(msg)
@@ -440,14 +440,14 @@ class OperaCslcSearch(YamlModel):
         ),
         validate_default=True,
     )
-    bbox: Optional[tuple[float, float, float, float]] = Field(
+    bbox: tuple[float, float, float, float] | None = Field(
         None,
         description=(
             "Area of interest as (left, bottom, right, top) in decimal degrees."
             " Either `bbox` or `wkt` must be set."
         ),
     )
-    wkt: Optional[str] = Field(
+    wkt: str | None = Field(
         None,
         description=(
             "Area of interest as a WKT polygon string (or path to a `.wkt` file)."
@@ -461,12 +461,12 @@ class OperaCslcSearch(YamlModel):
         default_factory=datetime.now,
         description="Search end time. Defaults to now.",
     )
-    track: Optional[int] = Field(
+    track: int | None = Field(
         None,
         alias="relativeOrbit",
         description="Sentinel-1 relative orbit / track number.",
     )
-    burst_ids: Optional[list[str]] = Field(
+    burst_ids: list[str] | None = Field(
         None,
         description=(
             "Restrict to specific OPERA burst IDs (e.g. ['t078_165573_iw2']);"
@@ -500,7 +500,7 @@ class OperaCslcSearch(YamlModel):
         return Path(v).expanduser().resolve()
 
     @model_validator(mode="after")
-    def _check_aoi_and_dates(self) -> "OperaCslcSearch":
+    def _check_aoi_and_dates(self) -> OperaCslcSearch:
         if not self.wkt and not self.bbox:
             msg = "Must provide either `bbox` or `wkt`"
             raise ValueError(msg)
@@ -665,7 +665,7 @@ class NisarGslcSearch(YamlModel):
         description="Directory where the NISAR GSLC HDF5s will be written.",
         validate_default=True,
     )
-    bbox: Optional[tuple[float, float, float, float]] = Field(
+    bbox: tuple[float, float, float, float] | None = Field(
         None,
         description=(
             "Area of interest as (left, bottom, right, top) in decimal degrees."
@@ -673,7 +673,7 @@ class NisarGslcSearch(YamlModel):
             " or `wkt` must be set."
         ),
     )
-    wkt: Optional[str] = Field(
+    wkt: str | None = Field(
         None,
         description=(
             "Area of interest as a WKT polygon string (or path to a `.wkt`"
@@ -688,7 +688,7 @@ class NisarGslcSearch(YamlModel):
         default_factory=datetime.now,
         description="Search end time. Defaults to now.",
     )
-    track: Optional[int] = Field(
+    track: int | None = Field(
         None,
         alias="relative_orbit_number",
         description=(
@@ -698,7 +698,7 @@ class NisarGslcSearch(YamlModel):
             " repeat-pass stack."
         ),
     )
-    frame: Optional[int] = Field(
+    frame: int | None = Field(
         None,
         alias="track_frame_number",
         description=(
@@ -707,7 +707,7 @@ class NisarGslcSearch(YamlModel):
             " across repeat passes."
         ),
     )
-    frequency: Optional[Literal["A", "B"]] = Field(
+    frequency: Literal["A", "B"] | None = Field(
         default=None,
         description=(
             "NISAR frequency band: `A` (L-band primary) or `B`. If left as"
@@ -718,7 +718,7 @@ class NisarGslcSearch(YamlModel):
             " usually wrong."
         ),
     )
-    polarizations: Optional[list[str]] = Field(
+    polarizations: list[str] | None = Field(
         None,
         description=(
             "Polarizations to keep (e.g. ['HH']). If left as the default"
@@ -758,11 +758,11 @@ class NisarGslcSearch(YamlModel):
 
     @field_validator("polarizations")
     @classmethod
-    def _upper_pols(cls, v: Optional[list[str]]) -> Optional[list[str]]:
+    def _upper_pols(cls, v: list[str] | None) -> list[str] | None:
         return [p.upper() for p in v] if v else v
 
     @model_validator(mode="after")
-    def _check_aoi_and_dates(self) -> "NisarGslcSearch":
+    def _check_aoi_and_dates(self) -> NisarGslcSearch:
         if not self.wkt and not self.bbox:
             msg = "Must provide either `bbox` or `wkt`"
             raise ValueError(msg)
@@ -968,11 +968,11 @@ class NisarGslcSearch(YamlModel):
 
     def _download_group(
         self,
-        chosen: list,  # noqa: ANN001
+        chosen: list,
         chosen_freq: str,
         chosen_pols: list[str],
         bounds: tuple[float, float, float, float],
-        process_file,  # noqa: ANN001
+        process_file,
     ) -> list[Path]:
         """Download + GeoTIFF-convert every product in one signature group."""
         outputs: list[Path] = []
@@ -1090,7 +1090,6 @@ class NisarGslcSearch(YamlModel):
         timeseries outputs in meters instead of radians.
         """
         import h5py
-
         from dolphin import constants
         from dolphin.constants import SPEED_OF_LIGHT
 
@@ -1098,7 +1097,7 @@ class NisarGslcSearch(YamlModel):
         candidates = h5_files if h5_files else self.existing_files()
         assert candidates, f"No NISAR files in {self.out_dir}; run download() first"
 
-        chosen_letter: Optional[str] = None
+        chosen_letter: str | None = None
         if h5_files:
             with h5py.File(h5_files[0], "r") as hf:
                 for freq_letter in ("A", "B"):
@@ -1142,7 +1141,7 @@ class NisarGslcSearch(YamlModel):
 
 
 def _group_nisar_results_by_signature(
-    results,  # noqa: ANN001
+    results,
 ) -> dict[tuple[str, frozenset[str]], list]:
     """Group NISAR search results by (frequency_letter, frozenset(pols)).
 
@@ -1165,10 +1164,10 @@ def _group_nisar_results_by_signature(
 
 
 def _get_per_product_rowcol_slice(
-    product,  # noqa: ANN001
+    product,
     bbox: tuple[float, float, float, float],
     frequency: str,
-) -> tuple[Optional[slice], Optional[slice]]:
+) -> tuple[slice | None, slice | None]:
     """Compute row/col slices for `bbox` against this product's own grid.
 
     opera-utils' default `_get_rowcol_slice` uses results[0]'s grid for
@@ -1284,7 +1283,7 @@ def _nisar_h5_to_vrts(
     return out_paths
 
 
-def _peek_nisar_grid_from_handle(hf) -> tuple[str, list[str]]:  # noqa: ANN001
+def _peek_nisar_grid_from_handle(hf) -> tuple[str, list[str]]:
     """Inspect an open NISAR GSLC HDF5 file handle for grid layout."""
     grids_path = "/science/LSAR/GSLC/grids"
     if grids_path not in hf:
