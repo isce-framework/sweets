@@ -24,7 +24,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
@@ -47,7 +47,7 @@ class _Section:
 
 def build_report(
     config_file: Path,
-    output: Optional[Path] = None,
+    output: Path | None = None,
 ) -> Path:
     """Render an HTML report for a completed sweets run.
 
@@ -100,7 +100,7 @@ def build_report(
 # ---------------------------------------------------------------------------
 
 
-def _build_header(workflow: "Workflow", config_path: Path) -> _Section:
+def _build_header(workflow: Workflow, config_path: Path) -> _Section:
     rows: list[tuple[str, str]] = [
         ("Work directory", str(workflow.work_dir)),
         ("Config file", str(config_path)),
@@ -145,13 +145,13 @@ def _build_raster_section(dolphin_dir: Path, kind: str) -> _Section:
     ts_dir = dolphin_dir / "timeseries"
     ifg_dir = dolphin_dir / "interferograms"
 
-    path: Optional[Path] = None
+    path: Path | None = None
     title = kind
     cbar_label = ""
     cmap = "RdBu_r"
     diverging = True
     clip_nodata_zero = False
-    fixed_vlim: Optional[tuple[float, float]] = None
+    fixed_vlim: tuple[float, float] | None = None
 
     if kind == "velocity":
         path = ts_dir / "velocity.tif"
@@ -300,7 +300,7 @@ def _build_inventory(dolphin_dir: Path) -> _Section:
     # Group by parent dir for readability
     out = "<table class='inv'>\n"
     out += "<tr><th>file</th><th align='right'>size</th></tr>\n"
-    current_parent: Optional[str] = None
+    current_parent: str | None = None
     for rel, size in rows:
         parent = str(rel.parent)
         if parent != current_parent:
@@ -327,7 +327,7 @@ _PAIR_RE = re.compile(r"^(\d{8})_(\d{8})\.tif$")
 
 def _read_raster(
     path: Path, *, default_unit: str = ""
-) -> tuple[Any, tuple[float, float, float, float], Optional[float], str]:
+) -> tuple[Any, tuple[float, float, float, float], float | None, str]:
     """Read a single-band raster via GDAL and return (data, bounds, nodata, unit).
 
     Uses GDAL directly because rasterio's ``_band_dtype`` map doesn't
@@ -367,9 +367,9 @@ def _read_raster(
     return data, (left, bottom, right, top), nodata, unit
 
 
-def _longest_timeseries_pair(ts_dir: Path) -> Optional[tuple[Path, datetime, datetime]]:
+def _longest_timeseries_pair(ts_dir: Path) -> tuple[Path, datetime, datetime] | None:
     """Return the `YYYYMMDD_YYYYMMDD.tif` timeseries step with the widest baseline."""
-    best: Optional[tuple[Path, datetime, datetime]] = None
+    best: tuple[Path, datetime, datetime] | None = None
     best_span = -1
     for p in ts_dir.glob("*.tif"):
         m = _PAIR_RE.match(p.name)
@@ -394,7 +394,7 @@ def _truncate(s: str, n: int) -> str:
     return s if len(s) <= n else s[: n - 3] + "..."
 
 
-def _wall_time(work_dir: Path) -> Optional[str]:
+def _wall_time(work_dir: Path) -> str | None:
     """Estimate wall time from log mtimes in work_dir / dolphin / ."""
     dolphin_dir = work_dir / "dolphin"
     candidates = list(dolphin_dir.rglob("*.tif"))
@@ -409,7 +409,7 @@ def _wall_time(work_dir: Path) -> Optional[str]:
     return f"{span / 3600:.1f} h"
 
 
-def _dolphin_version() -> Optional[str]:
+def _dolphin_version() -> str | None:
     try:
         import dolphin
 
@@ -448,13 +448,13 @@ def _render_raster_png(
     diverging: bool,
     cbar_label: str,
     title: str,
-    fixed_vlim: Optional[tuple[float, float]] = None,
+    fixed_vlim: tuple[float, float] | None = None,
 ) -> str:
     import matplotlib.pyplot as plt
     import numpy as np
 
-    vmin: Optional[float]
-    vmax: Optional[float]
+    vmin: float | None
+    vmax: float | None
     if fixed_vlim is not None:
         vmin, vmax = fixed_vlim
     else:
@@ -487,7 +487,7 @@ def _render_raster_png(
     return png
 
 
-def _fig_to_png(fig) -> str:  # noqa: ANN001
+def _fig_to_png(fig) -> str:
     buf = io.BytesIO()
     fig.savefig(buf, format="png", dpi=120, bbox_inches="tight")
     return base64.b64encode(buf.getvalue()).decode("ascii")

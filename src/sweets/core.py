@@ -20,15 +20,14 @@ import shutil
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, wait
 from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, Literal, Optional, Union
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from dolphin.utils import set_num_threads
 from dolphin.workflows.config import YamlModel
+from loguru import logger
 from opera_utils import group_by_burst
 from pydantic import ConfigDict, Field, computed_field, field_validator, model_validator
 from shapely import wkt as shp_wkt
-
-from loguru import logger
 
 from ._burst_db import get_burst_db
 from ._dolphin import DolphinOptions, run_displacement
@@ -49,7 +48,7 @@ if TYPE_CHECKING:
 # the matching variant — much cleaner errors than a plain Union, which
 # tries each variant in order and reports failures from all of them.
 Source = Annotated[
-    Union[BurstSearch, LocalSafeSearch, OperaCslcSearch, NisarGslcSearch],
+    BurstSearch | LocalSafeSearch | OperaCslcSearch | NisarGslcSearch,
     Field(discriminator="kind"),
 ]
 
@@ -63,14 +62,14 @@ class Workflow(YamlModel):
         validate_default=True,
     )
 
-    bbox: Optional[tuple[float, float, float, float]] = Field(
+    bbox: tuple[float, float, float, float] | None = Field(
         default=None,
         description=(
             "AOI as (left, bottom, right, top) in decimal degrees. Either"
             " `bbox` or `wkt` must be set."
         ),
     )
-    wkt: Optional[str] = Field(
+    wkt: str | None = Field(
         default=None,
         description="AOI as a WKT polygon (or path to a `.wkt` file). Overrides bbox.",
     )
@@ -93,7 +92,7 @@ class Workflow(YamlModel):
             " Copernicus DEM via sardem."
         ),
     )
-    dem_bbox: Optional[tuple[float, float, float, float]] = Field(
+    dem_bbox: tuple[float, float, float, float] | None = Field(
         default=None,
         description=(
             "Optional AOI override for DEM download (left, bottom, right,"
@@ -242,7 +241,7 @@ class Workflow(YamlModel):
         return values
 
     @model_validator(mode="after")
-    def _set_bbox_and_wkt(self) -> "Workflow":
+    def _set_bbox_and_wkt(self) -> Workflow:
         # Derive bbox from wkt if only wkt was supplied; downstream code
         # (DEM, dolphin bounds, etc.) all reads bbox, not wkt. We do NOT
         # auto-fill wkt from bbox: nothing in the workflow reads outer wkt
@@ -346,7 +345,7 @@ class Workflow(YamlModel):
         self.to_yaml(config_file)
 
     @classmethod
-    def load(cls, config_file: Filename = "sweets_config.yaml") -> "Workflow":
+    def load(cls, config_file: Filename = "sweets_config.yaml") -> Workflow:
         """Load a configuration from a YAML file."""
         logger.info(f"Loading config from {config_file}")
         return cls.from_yaml(config_file)
@@ -651,7 +650,7 @@ class Workflow(YamlModel):
             return "/unused-for-raster-inputs"
         return "/data/VV"
 
-    def _dolphin_wavelength(self) -> Optional[float]:
+    def _dolphin_wavelength(self) -> float | None:
         """Wavelength override for dolphin, or None to let dolphin auto-detect.
 
         For the NISAR source, sweets reads the precise carrier from the
@@ -667,7 +666,7 @@ class Workflow(YamlModel):
         return None
 
     @log_runtime
-    def _run_dolphin(self, gslc_files: list[Path]) -> "OutputPaths":
+    def _run_dolphin(self, gslc_files: list[Path]) -> OutputPaths:
         mask = self.water_mask_filename if self.water_mask_filename.exists() else None
         return run_displacement(
             cslc_files=gslc_files,
@@ -685,7 +684,7 @@ class Workflow(YamlModel):
     # ------------------------------------------------------------------
 
     @log_runtime
-    def run(self, starting_step: int = 1) -> "OutputPaths":
+    def run(self, starting_step: int = 1) -> OutputPaths:
         """Run the full workflow.
 
         Parameters
@@ -818,7 +817,7 @@ class Workflow(YamlModel):
 
     @log_runtime
     def _run_tropo(
-        self, gslc_files: list[Path], out_paths: "OutputPaths"
+        self, gslc_files: list[Path], out_paths: OutputPaths
     ) -> list[Path]:
         """Apply OPERA L4 TROPO-ZENITH corrections to dolphin's outputs.
 
