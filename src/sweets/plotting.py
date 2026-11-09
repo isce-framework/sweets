@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Optional, Sequence, Tuple, Union
 
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
@@ -46,15 +46,15 @@ if "oil_slick" not in mpl.colormaps:
 
 
 def plot_ifg(
-    img: Optional[ArrayLike] = None,
-    filename: Optional[Filename] = None,
+    img: ArrayLike | None = None,
+    filename: Filename | None = None,
     phase_cmap: str = "oil_slick",
-    ax: Optional[plt.Axes] = None,
+    ax: plt.Axes | None = None,
     add_colorbar: bool = True,
     title: str = "",
-    figsize: Optional[tuple[float, float]] = None,
+    figsize: tuple[float, float] | None = None,
     plot_cor: bool = False,
-    subsample_factor: Union[int, tuple[int, int]] = 1,
+    subsample_factor: int | tuple[int, int] = 1,
     **kwargs,
 ):
     """Plot an interferogram.
@@ -141,21 +141,21 @@ def _plot_cc(
 
 
 def browse_ifgs(
-    sweets_path: Optional[Filename] = None,
-    file_list: Optional[Sequence[Filename]] = None,
-    cor_list: Optional[Sequence[Filename]] = None,
-    unw_list: Optional[Sequence[Filename]] = None,
-    conncomp_list: Optional[Sequence[Filename]] = None,
-    amp_image: Optional[ArrayLike] = None,
+    sweets_path: Filename | None = None,
+    file_list: Sequence[Filename] | None = None,
+    cor_list: Sequence[Filename] | None = None,
+    unw_list: Sequence[Filename] | None = None,
+    conncomp_list: Sequence[Filename] | None = None,
+    amp_image: ArrayLike | None = None,
     figsize: tuple[int, int] = (7, 4),
     vm_unw: float = 10,
     vm_cor: float = 1,
     unw_suffix: str = ".unw.tif",
     layout="box",
-    axes: Optional[plt.Axes] = None,
-    ref_unw: Optional[tuple[float, float]] = None,
-    overview: Optional[int] = None,
-    subsample_factor: Union[int, tuple[int, int]] = 1,
+    axes: plt.Axes | None = None,
+    ref_unw: tuple[float, float] | None = None,
+    overview: int | None = None,
+    subsample_factor: int | tuple[int, int] = 1,
 ):
     """Browse interferograms in a sweets directory.
 
@@ -366,13 +366,13 @@ def browse_arrays(
 
 
 def plot_area_of_interest(
-    state: Optional[str] = None,
-    bbox: Optional[Tuple[float, float, float, float]] = None,
-    area_coordinates: Optional[Sequence[Tuple[float, float]]] = None,
+    state: str | None = None,
+    bbox: tuple[float, float, float, float] | None = None,
+    area_coordinates: Sequence[tuple[float, float]] | None = None,
     buffer: float = 0.0,
-    grid_step: Optional[float] = 1.0,
+    grid_step: float | None = 1.0,
     ax=None,
-) -> Tuple:
+) -> tuple:
     """Make a basic map to highlight an area of interest.
 
     Parameters
