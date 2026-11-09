@@ -32,7 +32,7 @@ from __future__ import annotations
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated, Any, Literal, Optional
+from typing import Annotated, Any, Literal
 
 import tyro
 from pydantic import Field, model_validator
@@ -70,7 +70,7 @@ class ConfigCli(Workflow):
     # Optional one in the subclass. A non-empty description is required
     # so dolphin's YAML-comment writer (which walks the full schema,
     # including excluded fields) doesn't trip over a missing key.
-    search: Annotated[Optional[Source], tyro.conf.Suppress] = Field(  # type: ignore[assignment]
+    search: Annotated[Source | None, tyro.conf.Suppress] = Field(  # type: ignore[assignment]
         default=None,
         description=(
             "Source of input SLCs. Built by `_assemble_search` from the"
@@ -85,14 +85,14 @@ class ConfigCli(Workflow):
     # so it can't call those factories — we override with plain
     # `Optional[Path] = None` and the wrap validator strips them when
     # unset so Workflow's own factory takes over downstream.
-    dem_filename: Optional[Path] = Field(  # type: ignore[assignment]
+    dem_filename: Path | None = Field(  # type: ignore[assignment]
         default=None,
         description=(
             "DEM raster in EPSG:4326. Defaults to `<work_dir>/dem.tif`"
             " (downloaded via sardem)."
         ),
     )
-    water_mask_filename: Optional[Path] = Field(  # type: ignore[assignment]
+    water_mask_filename: Path | None = Field(  # type: ignore[assignment]
         default=None,
         description=(
             "Water mask in EPSG:4326 (uint8, 1=land, 0=water). Defaults"
@@ -102,7 +102,7 @@ class ConfigCli(Workflow):
 
     # --- Source-flat flags (folded into `search`, not dumped) ---
 
-    start: Optional[str] = Field(
+    start: str | None = Field(
         default=None,
         description=(
             "Start date for the search (YYYY-MM-DD). Required for `safe`,"
@@ -111,7 +111,7 @@ class ConfigCli(Workflow):
         ),
         exclude=True,
     )
-    end: Optional[str] = Field(
+    end: str | None = Field(
         default=None,
         description=(
             "End date for the search (YYYY-MM-DD). Required for `safe`,"
@@ -131,7 +131,7 @@ class ConfigCli(Workflow):
         ),
         exclude=True,
     )
-    track: Optional[int] = Field(
+    track: int | None = Field(
         default=None,
         description=(
             "Relative orbit / track number. Required for --source safe;"
@@ -141,7 +141,7 @@ class ConfigCli(Workflow):
         ),
         exclude=True,
     )
-    frame: Optional[int] = Field(
+    frame: int | None = Field(
         default=None,
         description=(
             "NISAR track-frame number — the `Frame` field on ASF Vertex"
@@ -166,7 +166,7 @@ class ConfigCli(Workflow):
         ),
         exclude=True,
     )
-    swaths: Optional[list[str]] = Field(
+    swaths: list[str] | None = Field(
         default=None,
         description=(
             "Restrict to specific subswaths (e.g. ['IW2']). Only"
@@ -352,7 +352,7 @@ class ReportCmd:
     containing a sweets_config.yaml is also accepted and resolved to the
     yaml inside it."""
 
-    output: Optional[Path] = None
+    output: Path | None = None
     """Where to write the report. Defaults to `<work_dir>/sweets_report.html`."""
 
     def execute(self) -> None:
