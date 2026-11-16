@@ -10,7 +10,6 @@ from __future__ import annotations
 import importlib
 import platform
 import sys
-from typing import Optional
 
 import sweets
 
@@ -32,7 +31,7 @@ def _get_sys_info() -> dict[str, str]:
     }
 
 
-def _get_opera_info() -> dict[str, Optional[str]]:
+def _get_opera_info() -> dict[str, str | None]:
     """Information on system on core modules.
 
     Returns
@@ -50,7 +49,7 @@ def _get_opera_info() -> dict[str, Optional[str]]:
     return blob
 
 
-def _get_version(module_name: str) -> Optional[str]:
+def _get_version(module_name: str) -> str | None:
     if module_name in sys.modules:
         mod = sys.modules[module_name]
     else:
@@ -64,7 +63,7 @@ def _get_version(module_name: str) -> Optional[str]:
         return mod.version
 
 
-def _get_deps_info() -> dict[str, Optional[str]]:
+def _get_deps_info() -> dict[str, str | None]:
     """Overview of the installed version of main dependencies.
 
     Returns

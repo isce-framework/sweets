@@ -1,14 +1,12 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
 
 import rasterio as rio
 from dolphin import io, stitching
 from dolphin._types import Bbox
-from opera_utils import group_by_burst
-
 from loguru import logger
+from opera_utils import group_by_burst
 
 from ._types import Filename
 
@@ -18,7 +16,7 @@ def stitch_geometry(
     geom_dir: Path,
     dem_filename: Filename,
     looks: tuple[int, int],
-    bbox: Optional[Bbox] = None,
+    bbox: Bbox | None = None,
     overwrite: bool = False,
 ):
     """Stitch the burst-wise geometry files.
