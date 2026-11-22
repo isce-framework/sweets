@@ -14,7 +14,9 @@ def network_off():
     osr.SetPROJEnableNetwork(previous)
 
 
-def test_create_dem_refuses_when_the_geoid_cannot_be_applied(monkeypatch, tmp_path, network_off):
+def test_create_dem_refuses_when_the_geoid_cannot_be_applied(
+    monkeypatch, tmp_path, network_off
+):
     # PROJ without a usable grid applies a no-op vertical shift
     monkeypatch.setattr(dem, "_egm2008_shift", lambda lon, lat: 0.0)
     called = []
@@ -25,10 +27,18 @@ def test_create_dem_refuses_when_the_geoid_cannot_be_applied(monkeypatch, tmp_pa
     assert osr.GetPROJEnableNetwork() is False
 
 
-def test_network_is_enabled_while_sardem_runs_then_restored(monkeypatch, tmp_path, network_off):
-    monkeypatch.setattr(dem, "_egm2008_shift", lambda lon, lat: -36.0 if osr.GetPROJEnableNetwork() else 0.0)
+def test_network_is_enabled_while_sardem_runs_then_restored(
+    monkeypatch, tmp_path, network_off
+):
+    monkeypatch.setattr(
+        dem,
+        "_egm2008_shift",
+        lambda lon, lat: -36.0 if osr.GetPROJEnableNetwork() else 0.0,
+    )
     seen = []
-    monkeypatch.setattr(dem.sardem.dem, "main", lambda **kwargs: seen.append(osr.GetPROJEnableNetwork()))
+    monkeypatch.setattr(
+        dem.sardem.dem, "main", lambda **kwargs: seen.append(osr.GetPROJEnableNetwork())
+    )
     dem.create_dem(tmp_path / "dem.tif", BBOX)
     assert seen == [True]
     assert osr.GetPROJEnableNetwork() is False
