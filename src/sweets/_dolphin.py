@@ -21,11 +21,10 @@ from __future__ import annotations
 
 from math import cos, floor, log2, radians
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, Optional
-
-from pydantic import BaseModel, Field
+from typing import TYPE_CHECKING, Literal
 
 from loguru import logger
+from pydantic import BaseModel, Field
 
 from ._log import log_runtime
 
@@ -149,11 +148,11 @@ def build_displacement_config(
     cslc_files: list[Path],
     work_directory: Path,
     *,
-    options: Optional[DolphinOptions] = None,
-    mask_file: Optional[Path] = None,
-    bounds: Optional[tuple[float, float, float, float]] = None,
+    options: DolphinOptions | None = None,
+    mask_file: Path | None = None,
+    bounds: tuple[float, float, float, float] | None = None,
     subdataset: str = "/data/VV",
-    wavelength: Optional[float] = None,
+    wavelength: float | None = None,
 ):
     """Build a :class:`DisplacementWorkflow` config from sweets options.
 
@@ -266,13 +265,13 @@ def run_displacement(
     cslc_files: list[Path],
     work_directory: Path,
     *,
-    options: Optional[DolphinOptions] = None,
-    mask_file: Optional[Path] = None,
-    bounds: Optional[tuple[float, float, float, float]] = None,
-    config_yaml: Optional[Path] = None,
+    options: DolphinOptions | None = None,
+    mask_file: Path | None = None,
+    bounds: tuple[float, float, float, float] | None = None,
+    config_yaml: Path | None = None,
     subdataset: str = "/data/VV",
-    wavelength: Optional[float] = None,
-) -> "OutputPaths":
+    wavelength: float | None = None,
+) -> OutputPaths:
     """Build the dolphin config and run the displacement workflow.
 
     Parameters

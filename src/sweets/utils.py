@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Optional, Tuple
 
 import rasterio as rio
 from rasterio.vrt import WarpedVRT
@@ -43,7 +42,7 @@ def to_wkt(geojson: str) -> str:
     return wkt.dumps(geometry.shape(json.loads(geojson)))
 
 
-def to_bbox(*, geojson: Optional[str] = None, wkt_str: Optional[str] = None) -> Tuple:
+def to_bbox(*, geojson: str | None = None, wkt_str: str | None = None) -> tuple:
     """Convert a geojson or WKT string to a bounding box.
 
     Parameters
@@ -72,7 +71,7 @@ def to_bbox(*, geojson: Optional[str] = None, wkt_str: Optional[str] = None) -> 
     return tuple(geom.bounds)
 
 
-def get_transformed_bounds(filename: Filename, epsg_code: Optional[int] = None):
+def get_transformed_bounds(filename: Filename, epsg_code: int | None = None):
     """Get the bounds of a raster, possibly in a different CRS.
 
     Parameters
@@ -98,7 +97,7 @@ def get_transformed_bounds(filename: Filename, epsg_code: Optional[int] = None):
 
 def get_intersection_bounds(
     fname1: Filename, fname2: Filename, epsg_code: int = 4326
-) -> Tuple[float, float, float, float]:
+) -> tuple[float, float, float, float]:
     """Find the (left, bot, right, top) bounds of the raster intersection.
 
     Parameters
@@ -123,8 +122,8 @@ def get_intersection_bounds(
 
 
 def get_overlapping_bounds(
-    bbox1: Tuple[float, float, float, float], bbox2: Tuple[float, float, float, float]
-) -> Tuple[float, float, float, float]:
+    bbox1: tuple[float, float, float, float], bbox2: tuple[float, float, float, float]
+) -> tuple[float, float, float, float]:
     """Find the (left, bot, right, top) bounds of the bbox intersection.
 
     Parameters
