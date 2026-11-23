@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from os import fspath
 from pathlib import Path
-from typing import Tuple
 
 import sardem.dem
 from loguru import logger
@@ -15,7 +14,7 @@ from sweets.utils import get_cache_dir
 
 
 @log_runtime
-def create_dem(output_name: Filename, bbox: Tuple[float, float, float, float]) -> Path:
+def create_dem(output_name: Filename, bbox: tuple[float, float, float, float]) -> Path:
     """Download a Copernicus Global DEM clipped to `bbox`."""
     output_name = Path(output_name).resolve()
     if output_name.exists():
@@ -36,7 +35,7 @@ def create_dem(output_name: Filename, bbox: Tuple[float, float, float, float]) -
 @log_runtime
 def create_water_mask(
     output_name: Path,
-    bbox: Tuple[float, float, float, float],
+    bbox: tuple[float, float, float, float],
     buffer_meters: float = 0.0,
 ) -> Path:
     """Create a high-resolution binary land(1) / water(0) mask.
